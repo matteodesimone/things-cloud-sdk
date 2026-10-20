@@ -97,6 +97,8 @@ func TestVerifyErrorsAreTyped(t *testing.T) {
 		want   error
 	}{
 		{http.StatusUnauthorized, ErrUnauthorized},
+		// Things Cloud answers 404 for an account that does not exist.
+		{http.StatusNotFound, ErrUnauthorized},
 		{http.StatusInternalServerError, nil},
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

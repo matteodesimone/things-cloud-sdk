@@ -41,6 +41,11 @@ func (c *Client) Verify() (*VerifyResponse, error) {
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, ErrUnauthorized
 		}
+		// Things Cloud answers 404 for an account that does not exist:
+		// for the caller, the credentials are wrong.
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("account not found: %w", ErrUnauthorized)
+		}
 		return nil, &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status}
 	}
 	var v VerifyResponse
