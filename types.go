@@ -211,6 +211,12 @@ type Task struct {
 	TagIDs           []string
 	RecurrenceIDs    []string
 	DelegateIDs      []string
+	// Repeater is the recurrence rule (rr) of a recurring template; it is
+	// nil for ordinary tasks and for the instances a template creates.
+	Repeater *RepeaterConfiguration
+	// InstanceCreationCount (icc) counts the instances a recurring
+	// template has created so far.
+	InstanceCreationCount int
 }
 
 // TaskActionItemPayload describes the payload for modifying Tasks, and also Projects,

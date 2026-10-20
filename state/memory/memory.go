@@ -164,6 +164,12 @@ func (s *State) updateTask(item things.TaskActionItem) *things.Task {
 	if item.P.RecurrenceTaskIDs != nil {
 		t.RecurrenceIDs = *item.P.RecurrenceTaskIDs
 	}
+	if item.P.Repeater != nil {
+		t.Repeater = item.P.Repeater
+	}
+	if item.P.IsCompletedCount != nil {
+		t.InstanceCreationCount = *item.P.IsCompletedCount
+	}
 
 	return t
 }
@@ -647,4 +653,15 @@ func (s *State) SubTags(root *things.Tag) []*things.Tag {
 		return children[i].ShortHand < children[j].ShortHand
 	})
 	return children
+}
+
+// RecurrenceTemplate returns the recurring template that created task, or
+// nil when task is not an instance or its template is not in the state.
+func (s *State) RecurrenceTemplate(task *things.Task) *things.Task {
+	for _, id := range task.RecurrenceIDs {
+		if tmpl := s.Tasks[id]; tmpl != nil {
+			return tmpl
+		}
+	}
+	return nil
 }
