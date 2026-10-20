@@ -100,7 +100,7 @@ func splitLegacyRecurrenceIdentifier(id string) (string, []byte, bool) {
 func DecodeUUID(s string) (uuid.UUID, error) {
 	var u uuid.UUID
 	if s == "" {
-		return u, fmt.Errorf("thingscloud: empty identifier")
+		return u, &invalidUUIDError{"thingscloud: empty identifier"}
 	}
 
 	zeros := 0
@@ -113,7 +113,7 @@ func DecodeUUID(s string) (uuid.UUID, error) {
 	for i := zeros; i < len(s); i++ {
 		idx := strings.IndexByte(base58Alphabet, s[i])
 		if idx < 0 {
-			return u, fmt.Errorf("thingscloud: invalid Base58 character %q in identifier %q", s[i], s)
+			return u, &invalidUUIDError{fmt.Sprintf("thingscloud: invalid Base58 character %q in identifier %q", s[i], s)}
 		}
 		n.Mul(n, base)
 		n.Add(n, big.NewInt(int64(idx)))
@@ -121,7 +121,7 @@ func DecodeUUID(s string) (uuid.UUID, error) {
 
 	value := n.Bytes()
 	if zeros+len(value) != len(u) {
-		return u, fmt.Errorf("thingscloud: identifier %q decodes to %d bytes, want 16 (non-canonical or wrong length)", s, zeros+len(value))
+		return u, &invalidUUIDError{fmt.Sprintf("thingscloud: identifier %q decodes to %d bytes, want 16 (non-canonical or wrong length)", s, zeros+len(value))}
 	}
 	copy(u[len(u)-len(value):], value)
 	return u, nil

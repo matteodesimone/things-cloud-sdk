@@ -278,9 +278,11 @@ func (h *History) Write(items ...Identifiable) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		bs, _ := httputil.DumpResponse(resp, true)
-		log.Println(string(bs))
-		return fmt.Errorf("Write failed: %d", resp.StatusCode)
+		if h.Client.Debug {
+			bs, _ := httputil.DumpResponse(resp, true)
+			log.Println(string(bs))
+		}
+		return fmt.Errorf("Write failed: %d: %w", resp.StatusCode, &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status})
 	}
 	rs, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -309,6 +311,9 @@ type task7TargetState struct {
 	rtActive bool
 	icsd     bool
 	acrd     bool
+
+	// otherKind is set when a non-task event names the target.
+	otherKind bool
 }
 
 func (h *History) preflightTask7Modifications(targets map[string]struct{}) (int, error) {
@@ -357,13 +362,17 @@ func (h *History) preflightTask7Modifications(targets map[string]struct{}) (int,
 	for id, state := range states {
 		switch {
 		case state.future:
-			return 0, fmt.Errorf("Task7 write preflight: target %s has an unsupported future task kind", id)
-		case !state.exists || state.ambiguous || state.sameIndexAmbiguous:
-			return 0, fmt.Errorf("Task7 write preflight: target %s is missing or ambiguous", id)
+			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "has an unsupported future task kind"}
+		case state.otherKind && !state.exists && !state.ambiguous && !state.sameIndexAmbiguous:
+			return 0, &PreflightError{Target: id, Reason: ErrWrongKind, detail: "is not a task"}
+		case !state.exists && !state.ambiguous && !state.sameIndexAmbiguous:
+			return 0, &PreflightError{Target: id, Reason: ErrNotFound, detail: "is missing"}
+		case !state.exists || state.ambiguous || state.sameIndexAmbiguous || state.otherKind:
+			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "is ambiguous"}
 		case !state.rrKnown || !state.rpKnown || !state.rtKnown:
-			return 0, fmt.Errorf("Task7 write preflight: target %s lacks complete recurrence markers", id)
+			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "lacks complete recurrence markers"}
 		case state.rrActive || state.rpActive || state.rtActive || state.icsd || state.acrd:
-			return 0, fmt.Errorf("Task7 write preflight: target %s is recurring", id)
+			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is recurring"}
 		}
 	}
 	return checkedHead, nil
@@ -413,14 +422,18 @@ func applyTask7PreflightItem(states map[string]*task7TargetState, item Item) err
 	default:
 		if strings.HasPrefix(string(item.Kind), "Task") {
 			state.future = true
+			state.ambiguous = true
+			return nil
 		}
-		state.ambiguous = true
+		// The identifier names an area, a tag, a checklist item or another
+		// non-task object: not a task to modify.
+		state.otherKind = true
 		return nil
 	}
 
 	switch item.Action {
 	case ItemActionCreated:
-		ambiguous := state.ambiguous || state.future || state.exists
+		ambiguous := state.ambiguous || state.future || state.exists || state.otherKind
 		state.resetSemantic(true)
 		state.ambiguous = ambiguous
 	case ItemActionModified:
