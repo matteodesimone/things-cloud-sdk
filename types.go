@@ -121,6 +121,19 @@ func (t *Timestamp) Time() *time.Time {
 	return &tt
 }
 
+// noDateYear is the year of the date Things writes where a date is absent:
+// 4001-01-01, as in the deadline of a recurring template without end.
+const noDateYear = 4001
+
+// Date returns the timestamp as a date, or nil when it is missing or is the
+// 4001-01-01 placeholder Things writes for "no date".
+func (t *Timestamp) Date() *time.Time {
+	if t == nil || time.Time(*t).UTC().Year() >= noDateYear {
+		return nil
+	}
+	return t.Time()
+}
+
 // Boolean allows integers to be parsed into booleans, where 1 means true and 0 means false
 type Boolean bool
 

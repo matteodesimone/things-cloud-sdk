@@ -119,13 +119,13 @@ func (s *State) updateTask(item things.TaskActionItem) *things.Task {
 		t.Schedule = *item.P.Schedule
 	}
 	if item.P.ScheduledDate != nil {
-		t.ScheduledDate = item.P.ScheduledDate.Time()
+		t.ScheduledDate = item.P.ScheduledDate.Date()
 	}
 	if item.P.CompletionDate != nil {
-		t.CompletionDate = item.P.CompletionDate.Time()
+		t.CompletionDate = item.P.CompletionDate.Date()
 	}
 	if item.P.DeadlineDate != nil {
-		t.DeadlineDate = item.P.DeadlineDate.Time()
+		t.DeadlineDate = item.P.DeadlineDate.Date()
 	}
 	if item.P.CreationDate != nil {
 		cd := item.P.CreationDate.Time()

@@ -424,13 +424,13 @@ func applyTaskPayload(old *things.Task, uuid string, p things.TaskActionItemPayl
 		t.Title = *p.Title
 	}
 	if p.ScheduledDate != nil {
-		t.ScheduledDate = p.ScheduledDate.Time()
+		t.ScheduledDate = p.ScheduledDate.Date()
 	}
 	if p.CompletionDate != nil {
-		t.CompletionDate = p.CompletionDate.Time()
+		t.CompletionDate = p.CompletionDate.Date()
 	}
 	if p.DeadlineDate != nil {
-		t.DeadlineDate = p.DeadlineDate.Time()
+		t.DeadlineDate = p.DeadlineDate.Date()
 	}
 	if p.Index != nil {
 		t.Index = *p.Index
