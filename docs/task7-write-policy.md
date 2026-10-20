@@ -104,3 +104,21 @@ other recurrence modes, and concurrent/offline convergence remain unverified.
 
 See [the live verification report](task7-write-verification.md) for the tested
 ordinary-operation matrix and its limits.
+
+## Builders for SDK callers
+
+`task_builders.go` exposes the shapes above to callers that are not the CLI:
+`NewTaskCreate` (tasks and projects, with the complete creation payload),
+`NewAreaCreate`, `NewChecklistItemCreate` and the sparse `TaskUpdate`. Each
+builder output passes the same policy `History.Write` applies.
+
+`TaskUpdate.MoveToArea`, `MoveToProject` and `MoveOut` write only the
+containers (`ar`, `pr`, `agr`) and the modification date: unlike the CLI's
+`move-to-area` and `move-to-project`, which also reset the task to Anytime,
+they keep its start state and dates. The policy admits this sparse shape,
+since `st`, `sr` and `tir` are only required together when one of them is
+written. The verification above moved tasks between containers with
+explicit empty relationship arrays; a container-only move of a task that
+has a start date is still to be verified live. A task leaving the Inbox
+needs `st` too: callers add `Schedule(TaskScheduleAnytime)`, which loses
+nothing, as an Inbox task has no start date.
