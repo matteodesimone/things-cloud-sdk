@@ -143,8 +143,10 @@ func TestTaskUpdateFields(t *testing.T) {
 			map[string]any{"st": float64(1), "sr": float64(builderToday.Unix()), "tir": float64(builderToday.Unix())}},
 		{"no date", NewTaskUpdate(NewUUID(), builderNow).Schedule(TaskScheduleAnytime),
 			map[string]any{"st": float64(1), "sr": nil, "tir": nil}},
+		// A new deadline clears the suppression from Today, as the app
+		// does (captured 2026-10-21).
 		{"deadline", NewTaskUpdate(NewUUID(), builderNow).Deadline(&day),
-			map[string]any{"dd": float64(day.Unix())}},
+			map[string]any{"dd": float64(day.Unix()), "dds": nil}},
 		{"no deadline", NewTaskUpdate(NewUUID(), builderNow).Deadline(nil),
 			map[string]any{"dd": nil}},
 		{"complete", NewTaskUpdate(NewUUID(), builderNow).Complete(builderNow),
@@ -168,6 +170,18 @@ func TestTaskUpdateFields(t *testing.T) {
 				t.Errorf("%s: %s = %#v, want %#v", c.name, k, p[k], v)
 			}
 		}
+	}
+}
+
+// A modification may clear the deadline suppression (dds: null), as the app
+// does with a new deadline; setting it is outside the verified scope.
+func TestModificationDeadlineSuppressionOnlyNull(t *testing.T) {
+	t.Parallel()
+	if err := validateTask7Modification(map[string]json.RawMessage{"md": json.RawMessage(`1700000000`), "dds": json.RawMessage(`null`)}); err != nil {
+		t.Errorf("dds null refused: %v", err)
+	}
+	if err := validateTask7Modification(map[string]json.RawMessage{"md": json.RawMessage(`1700000000`), "dds": json.RawMessage(`1700000000`)}); err == nil {
+		t.Error("a dds day was accepted")
 	}
 }
 

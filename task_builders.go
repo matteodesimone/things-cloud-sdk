@@ -155,12 +155,14 @@ func (u *TaskUpdate) ScheduleDate(day, today time.Time) *TaskUpdate {
 	return u
 }
 
-// Deadline sets the deadline day, or clears it when day is nil.
+// Deadline sets the deadline day, or clears it when day is nil. A new day
+// also clears the suppression from Today (dds), as the app does: a task
+// taken out of Today while due comes back with its new deadline.
 func (u *TaskUpdate) Deadline(day *time.Time) *TaskUpdate {
 	if day == nil {
 		u.fields["dd"] = nil
 	} else {
-		u.fields["dd"] = dayStamp(*day)
+		u.fields["dd"], u.fields["dds"] = dayStamp(*day), nil
 	}
 	return u
 }

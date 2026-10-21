@@ -214,6 +214,7 @@ type Task struct {
 	// DeadlineSuppressionDate (dds) is set when the user takes a due task
 	// out of Today ("When…" > "Clear"): the app writes the day, and sets it
 	// back to null when the deadline changes (captured 2026-10-21).
+	// state/memory fills it; the sync engine does not store it yet.
 	DeadlineSuppressionDate *time.Time
 	Index                   int
 	AreaIDs                 []string

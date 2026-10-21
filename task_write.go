@@ -238,6 +238,7 @@ func validateTask7Create(p map[string]json.RawMessage) error {
 var task7ModificationKeys = map[string]struct{}{
 	"md": {}, "tt": {}, "nt": {}, "st": {}, "sr": {}, "tir": {}, "dd": {}, "ar": {},
 	"pr": {}, "agr": {}, "tg": {}, "ss": {}, "sp": {}, "tr": {}, "ix": {}, "ti": {}, "do": {},
+	"dds": {},
 }
 
 func validateTask7Modification(p map[string]json.RawMessage) error {
@@ -245,6 +246,11 @@ func validateTask7Modification(p map[string]json.RawMessage) error {
 		if _, ok := task7ModificationKeys[key]; !ok {
 			return fmt.Errorf("modification contains a property outside the verified write scope")
 		}
+	}
+	// The deadline suppression is only cleared, as the app does with a new
+	// deadline (captured 2026-10-21); setting it is not verified.
+	if raw, ok := p["dds"]; ok && !jsonNull(raw) {
+		return fmt.Errorf("modification dds must be null")
 	}
 	if err := requiredTimestamp(p["md"], true); err != nil {
 		return fmt.Errorf("modification md %w", err)

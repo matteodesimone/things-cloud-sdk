@@ -154,6 +154,13 @@ func TestStateUpdateTask7DeadlineSuppression(t *testing.T) {
 	if task.DeadlineSuppressionDate == nil || !task.DeadlineSuppressionDate.Equal(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("dds = %v, want 2026-10-21", task.DeadlineSuppressionDate)
 	}
+	// A later payload without dds keeps it: only an explicit null clears.
+	if err := state.Update(taskReadItem("due", task7Kind, things.ItemActionModified, `{"tt":"Renamed","md":1792580050}`)); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if task := requireTask(t, state, "due"); task.DeadlineSuppressionDate == nil {
+		t.Fatal("an omitted dds cleared the suppression")
+	}
 	if err := state.Update(taskReadItem("due", task7Kind, things.ItemActionModified, `{"dd":1792627200,"dds":null,"md":1792580064.719101,"ti":-416,"tir":1792627200}`)); err != nil {
 		t.Fatalf("new deadline: %v", err)
 	}
