@@ -127,3 +127,26 @@ explicit empty relationship arrays; a container-only move of a task that
 has a start date is still to be verified live. A task leaving the Inbox
 needs `st` too: callers add `Schedule(TaskScheduleAnytime)`, which loses
 nothing, as an Inbox task has no start date.
+
+## Templates with deadlines
+
+A recurring template with deadlines («Add deadlines», `dd` at 4001-01-01)
+is written in the shapes Things.app writes (captured 2026-10-21 on a test
+account):
+
+- **Creation** (`NewDeadlineTemplateCreate`): the complete Task7 payload of
+  a task in one project, with `st` 2, `sr` null, `md` at the creation time,
+  `tir` and `icsd` both at the start of the next instance, `icc` 0, and a
+  rule `rr` that is yearly on a day of a month (`fu` 4, `of: [{dy, mo}]`) or
+  monthly on a day (`fu` 8, `of: [{dy}]`), every `fa` periods, fixed
+  (`tp` 0), without end (`ed` at 4001-01-01, `rc` 0, `rrv` 4), its instance
+  `-ts` days before. Any other rule is refused.
+- **Modifications** on such a template only: title and note (`tt`, `nt`);
+  the rule with the start of the next instance (`TaskUpdate.Repeat`: `rr`,
+  `tir` and `icsd` together, without `st` and `sr`); the trash (`tr`). Each
+  with `md`. Completing it, a deadline or a start date on it, and these
+  writes on a template without deadlines or on a plain task are refused.
+
+The instances are created by the app when their start comes, together with
+the update of the template; writers do not create them. Trashing a
+template leaves its open instance as it is.

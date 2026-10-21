@@ -249,3 +249,104 @@ func TestNewAreaAndChecklistItemCreate(t *testing.T) {
 		t.Fatalf("checklist payload %v", p)
 	}
 }
+
+// A recurring template with deadlines («Add deadlines», captured
+// 2026-10-21, commits 97, 100 and 103 of the test account): the whole
+// creation the app writes, with the start of the next instance in tir and
+// icsd, and md at the creation time.
+func TestNewDeadlineTemplateCreateBuildsTheCapturedShape(t *testing.T) {
+	t.Parallel()
+
+	project := NewUUID()
+	march := int64(2)
+	start := time.Date(2027, 3, 20, 0, 0, 0, 0, time.UTC)
+	item, err := NewDeadlineTemplateCreate(NewUUID(), DeadlineTemplate{
+		Title: "Prova marzo", ProjectID: project,
+		Rule:  DeadlineRule{Unit: FrequencyUnitYearly, Amplitude: 1, Day: 29, Month: &march, Lead: 10, Anchor: builderToday, Reference: builderToday},
+		Start: start, Now: builderNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := checkWritable(t, item)
+	got, _ := json.Marshal(env["p"])
+	now := float64(builderNow.UnixNano()) / 1e9
+	want := map[string]any{
+		"tp": 0, "sr": nil, "dds": nil, "rt": []string{}, "rmd": nil, "ss": 0, "tr": false, "dl": []string{}, "icp": false, "st": 2, "ar": []string{},
+		"tt": "Prova marzo", "do": 0, "lai": nil, "tir": start.Unix(), "tg": []string{}, "agr": []string{}, "ix": 0, "cd": now, "lt": false, "icc": 0,
+		"md": now, "ti": 0, "dd": 64092211200, "ato": nil, "nt": map[string]any{"_t": "tx", "ch": 0, "v": "", "t": 1}, "icsd": start.Unix(),
+		"pr": []string{project}, "rp": nil, "acrd": nil, "sp": nil, "sb": 0,
+		"rr": map[string]any{"ia": builderToday.Unix(), "of": []map[string]any{{"dy": 29, "mo": 2}}, "rrv": 4, "ts": -10, "fu": 4, "sr": builderToday.Unix(), "fa": 1, "tp": 0, "rc": 0, "ed": 64092211200},
+		"xx": map[string]any{"sn": map[string]any{}, "_t": "oo"},
+	}
+	wantJSON, _ := json.Marshal(want)
+	var a, b any
+	json.Unmarshal(got, &a)
+	json.Unmarshal(wantJSON, &b)
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("payload\n got %s\nwant %s", got, wantJSON)
+	}
+
+	// Monthly, every 3 months: no month in the day of the rule.
+	item, err = NewDeadlineTemplateCreate(NewUUID(), DeadlineTemplate{
+		Title: "Prova trimestrale", Note: "una nota", ProjectID: project,
+		Rule:  DeadlineRule{Unit: FrequencyUnitMonthly, Amplitude: 3, Day: 15, Lead: 5, Anchor: builderToday, Reference: builderToday},
+		Start: time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC), Now: builderNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := checkWritable(t, item)["p"].(map[string]any)["rr"].(map[string]any)
+	if rr["fu"] != float64(8) || rr["fa"] != float64(3) || !reflect.DeepEqual(rr["of"], []any{map[string]any{"dy": float64(15)}}) || rr["ts"] != float64(-5) {
+		t.Errorf("monthly rr %v", rr)
+	}
+
+	for name, c := range map[string]DeadlineTemplate{
+		"no project":      {Title: "x", Rule: DeadlineRule{Unit: FrequencyUnitMonthly, Amplitude: 1, Day: 15}},
+		"daily":           {Title: "x", ProjectID: project, Rule: DeadlineRule{Unit: FrequencyUnitDaily, Amplitude: 1}},
+		"weekly":          {Title: "x", ProjectID: project, Rule: DeadlineRule{Unit: FrequencyUnitWeekly, Amplitude: 1}},
+		"yearly no month": {Title: "x", ProjectID: project, Rule: DeadlineRule{Unit: FrequencyUnitYearly, Amplitude: 1, Day: 4}},
+		"monthly month":   {Title: "x", ProjectID: project, Rule: DeadlineRule{Unit: FrequencyUnitMonthly, Amplitude: 1, Day: 4, Month: &march}},
+		"negative lead":   {Title: "x", ProjectID: project, Rule: DeadlineRule{Unit: FrequencyUnitMonthly, Amplitude: 1, Day: 4, Lead: -1}},
+		"no amplitude":    {Title: "x", ProjectID: project, Rule: DeadlineRule{Unit: FrequencyUnitMonthly, Day: 4}},
+		"day 31":          {Title: "x", ProjectID: project, Rule: DeadlineRule{Unit: FrequencyUnitMonthly, Amplitude: 1, Day: 31}},
+	} {
+		c.Rule.Anchor, c.Rule.Reference, c.Start, c.Now = builderToday, builderToday, builderToday, builderNow
+		if _, err := NewDeadlineTemplateCreate(NewUUID(), c); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+// The rule of a template with deadlines changes as «Reschedule» writes it
+// (captured 2026-10-21, commit 100): the whole rule, and tir and icsd at
+// the start of the next instance, without the schedule.
+func TestTaskUpdateRepeat(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC)
+	u := NewTaskUpdate(NewUUID(), builderNow).Repeat(DeadlineRule{Unit: FrequencyUnitMonthly, Amplitude: 1, Day: 19, Lead: 5, Anchor: builderToday, Reference: builderToday}, start)
+	env := checkWritable(t, u)
+	if keys := payloadKeys(env); !reflect.DeepEqual(keys, []string{"icsd", "md", "rr", "tir"}) {
+		t.Errorf("keys %v", keys)
+	}
+	p := env["p"].(map[string]any)
+	if p["tir"] != float64(start.Unix()) || p["icsd"] != float64(start.Unix()) {
+		t.Errorf("tir %v icsd %v", p["tir"], p["icsd"])
+	}
+	for name, fields := range map[string]string{
+		"rr without tir":          `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"icsd":1795219200`,
+		"tir and icsd apart":      `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795305600`,
+		"rr with the schedule":    `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200,"st":2,"sr":1795219200`,
+		"a daily rr":              `"rr":{"ia":1792540800,"of":[{"dy":0}],"tp":0,"ts":0,"fu":16,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`,
+		"a rule that ends":        `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":1800000000},"tir":1795219200,"icsd":1795219200`,
+		"a rule after completion": `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":1,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`,
+		"icsd alone":              `"icsd":1795219200`,
+		"rr null":                 `"rr":null,"tir":1795219200,"icsd":1795219200`,
+	} {
+		body := []byte(`{"` + NewUUID() + `":` + task7UpdateBody(fields) + `}`)
+		if _, err := validateTaskWrites(body); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

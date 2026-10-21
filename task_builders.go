@@ -268,3 +268,76 @@ func fullTextNote(text string) map[string]any {
 func defaultExtensionData() map[string]any {
 	return map[string]any{"sn": map[string]any{}, "_t": "oo"}
 }
+
+// DeadlineRule is the rule of a recurring template with deadlines («Add
+// deadlines», captured 2026-10-21): every Amplitude years on Month and Day,
+// or every Amplitude months on Day, its instance starting Lead days before.
+// Days and months count from 0, Day -1 is the last day of the month.
+// Anchor (ia) is the day the periods count from, Reference (sr) the start
+// of the rule: the app writes the creation day in both.
+type DeadlineRule struct {
+	Unit      FrequencyUnit
+	Amplitude int64
+	Day       int64
+	Month     *int64
+	Lead      int
+	Anchor    time.Time
+	Reference time.Time
+}
+
+// payload is the rule as the app writes it; the write policy checks it.
+func (r DeadlineRule) payload() map[string]any {
+	of := map[string]any{"dy": r.Day}
+	if r.Month != nil {
+		of["mo"] = *r.Month
+	}
+	return map[string]any{
+		"ia": dayStamp(r.Anchor), "of": []map[string]any{of}, "tp": 0, "ts": -r.Lead, "fu": r.Unit, "rc": 0,
+		"sr": dayStamp(r.Reference), "rrv": 4, "fa": r.Amplitude, "ed": noDateStamp,
+	}
+}
+
+// noDateStamp is 4001-01-01, the date of «no date»: on a template, «Add
+// deadlines», and the end of a rule that does not end.
+const noDateStamp int64 = 64092211200
+
+// DeadlineTemplate is a new recurring template with deadlines in a
+// project: Start is the start of its next instance, which the app creates
+// when that day comes.
+type DeadlineTemplate struct {
+	Title, Note string
+	ProjectID   string
+	Rule        DeadlineRule
+	Start, Now  time.Time
+}
+
+// NewDeadlineTemplateCreate builds the creation of a template with
+// deadlines as Things.app writes it (captured 2026-10-21, commits 97, 100
+// and 103), and checks it against the write policy.
+func NewDeadlineTemplateCreate(uuid string, c DeadlineTemplate) (Identifiable, error) {
+	start := dayStamp(c.Start)
+	payload := map[string]any{
+		"tp": TaskTypeTask, "sr": nil, "dds": nil, "rt": []string{}, "rmd": nil, "ss": 0,
+		// st 2, the schedule the app gives a template.
+		"tr": false, "dl": []string{}, "icp": false, "st": TaskScheduleSomeday, "ar": []string{},
+		"tt": c.Title, "do": 0, "lai": nil, "tir": start, "tg": []string{}, "agr": []string{},
+		"ix": 0, "cd": stamp(c.Now), "lt": false, "icc": 0, "md": stamp(c.Now), "ti": 0, "dd": noDateStamp,
+		"ato": nil, "nt": fullTextNote(c.Note), "icsd": start, "pr": oneOrNone(c.ProjectID),
+		"rp": nil, "acrd": nil, "sp": nil, "sb": 0, "rr": c.Rule.payload(), "xx": defaultExtensionData(),
+	}
+	item := writeItem{id: uuid, action: ItemActionCreated, kind: ItemKindTask7, payload: payload}
+	if err := checkWriteItem(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// Repeat changes the rule of a template with deadlines as «Reschedule»
+// writes it (captured 2026-10-21, commit 100): the whole rule, and the
+// start of its next instance in tir and icsd.
+func (u *TaskUpdate) Repeat(rule DeadlineRule, start time.Time) *TaskUpdate {
+	u.fields["rr"] = rule.payload()
+	u.fields["tir"] = dayStamp(start)
+	u.fields["icsd"] = dayStamp(start)
+	return u
+}

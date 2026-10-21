@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -389,6 +390,9 @@ func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys 
 		case !state.rrKnown || !state.rpKnown || !state.rtKnown:
 			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "lacks complete recurrence markers"}
 		case writableInstance(state, templates, keys[id]):
+		case writableTemplate(state, templates[id], keys[id]):
+		case templateOnly(keys[id]):
+			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is not a template with deadlines"}
 		case state.rrActive || state.rpActive || state.rtActive || state.icsd || state.acrd:
 			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is recurring"}
 		}
@@ -511,6 +515,46 @@ func writableInstance(state *task7TargetState, templates map[string]*deadlineTem
 		}
 	}
 	return true
+}
+
+// templateWrites are the writes the app makes on a template with deadlines
+// (captured 2026-10-21, commits 98–102), each with the modification date:
+// title and note, the rule with the start of its next instance, the trash.
+var templateWrites = []map[string]bool{
+	{"tt": true, "nt": true},
+	{"rr": true, "tir": true, "icsd": true},
+	{"tr": true},
+}
+
+// writableTemplate says whether a target is a recurring template with
+// deadlines, and the modification is one the app makes on it.
+func writableTemplate(state *task7TargetState, t *deadlineTemplate, keys []string) bool {
+	if t == nil || !t.recurring || !t.deadlines || !state.rrActive || state.rpActive || state.rtActive || state.acrd {
+		return false
+	}
+	for _, allowed := range templateWrites {
+		ok, some := true, false
+		for _, key := range keys {
+			if key == "md" {
+				continue
+			}
+			some = true
+			if !allowed[key] {
+				ok = false
+			}
+		}
+		if ok && some {
+			return true
+		}
+	}
+	return false
+}
+
+// templateOnly says whether a modification writes what only a template
+// with deadlines takes: its rule, or the day the app looks whether to
+// create an instance.
+func templateOnly(keys []string) bool {
+	return slices.Contains(keys, "rr") || slices.Contains(keys, "icsd")
 }
 
 // applyDeadlineTemplateItem keeps, for every task, whether it is a

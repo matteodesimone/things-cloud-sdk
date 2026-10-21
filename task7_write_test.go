@@ -631,3 +631,55 @@ func TestHistoryWriteMutableKindVariablesCannotEnableFutureTaskWrites(t *testing
 		t.Fatalf("preflight mutation case requests=%d posts=%d, want two total requests and one POST", requests, posts)
 	}
 }
+
+// A template with deadlines takes the writes the app makes on it (captured
+// 2026-10-21, commits 98–102): title and note, the rule with the start of
+// the next instance, the trash. Completing it, a deadline on it, a rule on
+// a template without deadlines or on a plain task stay refused.
+func TestHistoryWriteTask7DeadlineTemplate(t *testing.T) {
+	template, plain, task := NewUUID(), NewUUID(), NewUUID()
+	history := historyPage(3,
+		taskHistoryBatch(template, ItemKindTask7, 0, `{"rr":{"fu":8},"rp":null,"rt":[],"dd":64092211200,"icsd":1795219200}`),
+		taskHistoryBatch(plain, ItemKindTask7, 0, `{"rr":{"fu":16},"rp":null,"rt":[],"dd":null,"icsd":1792627200}`),
+		taskHistoryBatch(task, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":[],"dd":null,"icsd":null,"acrd":null}`),
+	)
+	write := func(target, fields string) (int, error) {
+		posts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				posts++
+				fmt.Fprint(w, `{"server-head-index":4}`)
+				return
+			}
+			fmt.Fprint(w, history)
+		}))
+		defer server.Close()
+		h := New(server.URL, "test@example.com", "password").HistoryWithID("history")
+		err := h.Write(rawWriteProbe{id: target, body: task7UpdateBody(fields)})
+		return posts, err
+	}
+	rule := `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`
+	for name, fields := range map[string]string{
+		"title":      `"tt":"Prova mensile 2"`,
+		"title+note": `"tt":"Prova mensile 2","nt":{"_t":"tx","ch":0,"v":"","t":1}`,
+		"rule":       rule,
+		"trash":      `"tr":true`,
+	} {
+		if posts, err := write(template, fields); err != nil || posts != 1 {
+			t.Errorf("%s on the template: posts %d, %v", name, posts, err)
+		}
+	}
+	for name, c := range map[string]struct{ target, fields string }{
+		"complete the template":        {template, `"ss":3,"sp":1792575000`},
+		"a deadline on the template":   {template, `"dd":1793059200`},
+		"a start date on the template": {template, `"st":2,"sr":1792627200,"tir":1792627200`},
+		"a rule on a plain template":   {plain, rule},
+		"a title on a plain template":  {plain, `"tt":"x"`},
+		"a rule on a task":             {task, rule},
+	} {
+		posts, err := write(c.target, c.fields)
+		if err == nil || posts != 0 {
+			t.Errorf("%s: posts %d, %v", name, posts, err)
+		}
+	}
+}
