@@ -43,7 +43,9 @@ type TaskCreate struct {
 	ProjectID string
 	TagIDs    []string
 	// Schedule is the start state when ScheduledDate is nil: Inbox, Anytime
-	// or Someday. A project is always Anytime.
+	// or Someday. A task in a container is never in the Inbox: an Inbox
+	// schedule (the zero value) becomes Anytime there. A project is always
+	// Anytime, without a start date.
 	Schedule TaskSchedule
 	// ScheduledDate is the day the task starts; the task goes to Today when
 	// the day is not after Today, to Upcoming otherwise.
@@ -61,6 +63,15 @@ func NewTaskCreate(uuid string, c TaskCreate) (Identifiable, error) {
 	}
 	if c.AreaID != "" && c.ProjectID != "" {
 		return nil, fmt.Errorf("thingscloud: a task goes in an area or in a project, not both")
+	}
+	if c.Type == TaskTypeProject {
+		if c.ScheduledDate != nil || c.Schedule == TaskScheduleSomeday {
+			return nil, fmt.Errorf("thingscloud: a project is created Anytime, without a start date")
+		}
+		c.Schedule = TaskScheduleAnytime
+	}
+	if (c.AreaID != "" || c.ProjectID != "") && c.Schedule == TaskScheduleInbox {
+		c.Schedule = TaskScheduleAnytime
 	}
 	st, sr := c.Schedule, any(nil)
 	if c.ScheduledDate != nil {

@@ -56,6 +56,9 @@ func TestNewTaskCreateBuildsTheVerifiedShape(t *testing.T) {
 		{"project, future date", TaskCreate{Title: "Later", ProjectID: project, ScheduledDate: &day, DeadlineDate: &day}, 2, float64(day.Unix())},
 		{"area, today", TaskCreate{Title: "Now", AreaID: area, ScheduledDate: &builderToday}, 1, float64(builderToday.Unix())},
 		{"project itself", TaskCreate{Title: "A project", Type: TaskTypeProject, AreaID: area, Schedule: TaskScheduleAnytime}, 1, nil},
+		{"project, schedule left out", TaskCreate{Title: "A project", Type: TaskTypeProject, AreaID: area}, 1, nil},
+		{"area, schedule left out", TaskCreate{Title: "Filed", AreaID: area}, 1, nil},
+		{"in a project, schedule left out", TaskCreate{Title: "Filed", ProjectID: project}, 1, nil},
 	}
 	for _, c := range cases {
 		c.create.Now, c.create.Today = builderNow, builderToday
@@ -78,10 +81,11 @@ func TestNewTaskCreateRefusesWhatThePolicyRefuses(t *testing.T) {
 	t.Parallel()
 
 	for name, c := range map[string]TaskCreate{
-		"area and project":     {Title: "x", AreaID: NewUUID(), ProjectID: NewUUID()},
-		"invalid area":         {Title: "x", AreaID: "not-a-uuid"},
-		"project in the inbox": {Title: "x", Type: TaskTypeProject, Schedule: TaskScheduleInbox},
-		"heading":              {Title: "x", Type: TaskTypeHeading, Schedule: TaskScheduleAnytime},
+		"area and project":    {Title: "x", AreaID: NewUUID(), ProjectID: NewUUID()},
+		"invalid area":        {Title: "x", AreaID: "not-a-uuid"},
+		"project with a date": {Title: "x", Type: TaskTypeProject, ScheduledDate: &builderToday},
+		"project in someday":  {Title: "x", Type: TaskTypeProject, Schedule: TaskScheduleSomeday},
+		"heading":             {Title: "x", Type: TaskTypeHeading, Schedule: TaskScheduleAnytime},
 	} {
 		c.Now, c.Today = builderNow, builderToday
 		if _, err := NewTaskCreate(NewUUID(), c); err == nil {

@@ -7,7 +7,7 @@ import (
 )
 
 // Errors a caller can tell apart with errors.Is, to say what went wrong
-// without parsing messages. ErrUnauthorized (client.go) is the fifth.
+// without parsing messages, besides ErrUnauthorized (client.go).
 var (
 	// ErrNotFound means the target of a write is not in the history.
 	ErrNotFound = errors.New("thingscloud: object not found")

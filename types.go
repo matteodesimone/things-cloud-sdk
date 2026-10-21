@@ -226,6 +226,8 @@ type Task struct {
 	DelegateIDs      []string
 	// Repeater is the recurrence rule (rr) of a recurring template; it is
 	// nil for ordinary tasks and for the instances a template creates.
+	// state/memory fills it and InstanceCreationCount; the sync engine does
+	// not store them yet.
 	Repeater *RepeaterConfiguration
 	// InstanceCreationCount (icc) counts the instances a recurring
 	// template has created so far.
