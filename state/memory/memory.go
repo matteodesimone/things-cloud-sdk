@@ -127,6 +127,9 @@ func (s *State) updateTask(item things.TaskActionItem) *things.Task {
 	if item.P.DeadlineDate != nil {
 		t.DeadlineDate = item.P.DeadlineDate.Date()
 	}
+	if item.P.DeadlineSuppression != nil {
+		t.DeadlineSuppressionDate = item.P.DeadlineSuppression.Date()
+	}
 	if item.P.CreationDate != nil {
 		cd := item.P.CreationDate.Time()
 		t.CreationDate = *cd

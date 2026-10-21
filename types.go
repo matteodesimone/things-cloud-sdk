@@ -211,19 +211,23 @@ type Task struct {
 	ScheduledDate    *time.Time
 	CompletionDate   *time.Time
 	DeadlineDate     *time.Time
-	Index            int
-	AreaIDs          []string
-	ParentTaskIDs    []string
-	ActionGroupIDs   []string
-	InTrash          bool
-	Schedule         TaskSchedule
-	Type             TaskType
-	TodayIndex       int
-	DueOrder         int
-	AlarmTimeOffset  *int
-	TagIDs           []string
-	RecurrenceIDs    []string
-	DelegateIDs      []string
+	// DeadlineSuppressionDate (dds) is set when the user takes a due task
+	// out of Today ("When…" > "Clear"): the app writes the day, and sets it
+	// back to null when the deadline changes (captured 2026-10-21).
+	DeadlineSuppressionDate *time.Time
+	Index                   int
+	AreaIDs                 []string
+	ParentTaskIDs           []string
+	ActionGroupIDs          []string
+	InTrash                 bool
+	Schedule                TaskSchedule
+	Type                    TaskType
+	TodayIndex              int
+	DueOrder                int
+	AlarmTimeOffset         *int
+	TagIDs                  []string
+	RecurrenceIDs           []string
+	DelegateIDs             []string
 	// Repeater is the recurrence rule (rr) of a recurring template; it is
 	// nil for ordinary tasks and for the instances a template creates.
 	// state/memory fills it and InstanceCreationCount; the sync engine does

@@ -163,6 +163,8 @@ func (p TaskReadPayload) ApplyNulls(task *Task) {
 			task.CompletionDate = nil
 		case "dd":
 			task.DeadlineDate = nil
+		case "dds":
+			task.DeadlineSuppressionDate = nil
 		case "ato":
 			task.AlarmTimeOffset = nil
 		case "ar":

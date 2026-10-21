@@ -134,6 +134,34 @@ func TestStateUpdateTask7NullableFields(t *testing.T) {
 	}
 }
 
+// The deadline suppression (dds) as the app writes it, captured from a live
+// account on 2026-10-21: taking a due task out of Today ("When…" > "Clear")
+// sets dds to the day; changing the deadline sets it back to null.
+func TestStateUpdateTask7DeadlineSuppression(t *testing.T) {
+	t.Parallel()
+
+	state := NewState()
+	if err := state.Update(taskReadItem("due", task7Kind, things.ItemActionCreated, `{"dd":1792540800,"dds":null,"sr":null,"tir":null,"st":1}`)); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if task := requireTask(t, state, "due"); task.DeadlineSuppressionDate != nil {
+		t.Fatalf("a new task has dds %v", task.DeadlineSuppressionDate)
+	}
+	if err := state.Update(taskReadItem("due", task7Kind, things.ItemActionModified, `{"dds":1792540800,"md":1792580044.741784}`)); err != nil {
+		t.Fatalf("suppress: %v", err)
+	}
+	task := requireTask(t, state, "due")
+	if task.DeadlineSuppressionDate == nil || !task.DeadlineSuppressionDate.Equal(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("dds = %v, want 2026-10-21", task.DeadlineSuppressionDate)
+	}
+	if err := state.Update(taskReadItem("due", task7Kind, things.ItemActionModified, `{"dd":1792627200,"dds":null,"md":1792580064.719101,"ti":-416,"tir":1792627200}`)); err != nil {
+		t.Fatalf("new deadline: %v", err)
+	}
+	if task := requireTask(t, state, "due"); task.DeadlineSuppressionDate != nil {
+		t.Fatalf("a new deadline left dds %v", task.DeadlineSuppressionDate)
+	}
+}
+
 func TestStateUpdateTask7ScheduleStatusTrashAndDeletion(t *testing.T) {
 	t.Parallel()
 
