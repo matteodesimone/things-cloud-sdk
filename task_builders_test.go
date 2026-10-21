@@ -196,6 +196,33 @@ func TestModificationDeadlineSuppressionOnlyNull(t *testing.T) {
 	}
 }
 
+// A modification may cancel (ss 2 with its stop date, as «Mark as
+// canceled» writes it) and set or clear the reminder (ato, the seconds of
+// a day); anything else around them stays outside the verified scope.
+func TestModificationCancelAndReminder(t *testing.T) {
+	t.Parallel()
+	md := json.RawMessage(`1700000000`)
+	for name, p := range map[string]map[string]json.RawMessage{
+		"cancel":      {"md": md, "ss": json.RawMessage(`2`), "sp": md},
+		"reminder":    {"md": md, "ato": json.RawMessage(`32400`)},
+		"no reminder": {"md": md, "ato": json.RawMessage(`null`)},
+	} {
+		if err := validateTask7Modification(p); err != nil {
+			t.Errorf("%s refused: %v", name, err)
+		}
+	}
+	for name, p := range map[string]map[string]json.RawMessage{
+		"cancel without its stop date": {"md": md, "ss": json.RawMessage(`2`), "sp": json.RawMessage(`null`)},
+		"a reminder past the day":      {"md": md, "ato": json.RawMessage(`86400`)},
+		"a negative reminder":          {"md": md, "ato": json.RawMessage(`-1`)},
+		"a reminder that is no number": {"md": md, "ato": json.RawMessage(`"9:00"`)},
+	} {
+		if err := validateTask7Modification(p); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
 func TestNewAreaAndChecklistItemCreate(t *testing.T) {
 	t.Parallel()
 

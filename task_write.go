@@ -238,7 +238,7 @@ func validateTask7Create(p map[string]json.RawMessage) error {
 var task7ModificationKeys = map[string]struct{}{
 	"md": {}, "tt": {}, "nt": {}, "st": {}, "sr": {}, "tir": {}, "dd": {}, "ar": {},
 	"pr": {}, "agr": {}, "tg": {}, "ss": {}, "sp": {}, "tr": {}, "ix": {}, "ti": {}, "do": {},
-	"dds": {},
+	"dds": {}, "ato": {},
 }
 
 func validateTask7Modification(p map[string]json.RawMessage) error {
@@ -273,8 +273,16 @@ func validateTask7Modification(p map[string]json.RawMessage) error {
 	}
 	if raw, ok := p["ss"]; ok {
 		value, ok := jsonInteger(raw)
-		if !ok || (value != 0 && value != 3) {
-			return fmt.Errorf("modification ss must be 0 or 3")
+		if !ok || (value != 0 && value != 2 && value != 3) {
+			return fmt.Errorf("modification ss must be 0, 2, or 3")
+		}
+	}
+	// The reminder is the seconds of a day on the start date, as the app
+	// writes it, or null (captured 2026-10-21).
+	if raw, ok := p["ato"]; ok && !jsonNull(raw) {
+		value, ok := jsonInteger(raw)
+		if !ok || value < 0 || value >= 86400 {
+			return fmt.Errorf("modification ato must be null or the seconds of a day")
 		}
 	}
 	ssRaw, hasStatus := p["ss"]
@@ -287,9 +295,9 @@ func validateTask7Modification(p map[string]json.RawMessage) error {
 		if status == 0 && !jsonNull(spRaw) {
 			return fmt.Errorf("modification ss 0 requires null sp")
 		}
-		if status == 3 {
+		if status == 2 || status == 3 {
 			if jsonNull(spRaw) || requiredTimestamp(spRaw, true) != nil {
-				return fmt.Errorf("modification ss 3 requires a positive sp timestamp")
+				return fmt.Errorf("modification ss %d requires a positive sp timestamp", status)
 			}
 		}
 	}
