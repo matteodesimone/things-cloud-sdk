@@ -124,6 +124,8 @@ func TestTaskUpdateMovesWithoutTouchingTheSchedule(t *testing.T) {
 	}
 }
 
+var nineOClock = 9 * time.Hour
+
 func TestTaskUpdateFields(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +153,15 @@ func TestTaskUpdateFields(t *testing.T) {
 			map[string]any{"dd": nil}},
 		{"complete", NewTaskUpdate(NewUUID(), builderNow).Complete(builderNow),
 			map[string]any{"ss": float64(3), "sp": float64(builderNow.Unix())}},
+		// «Mark as canceled» in the app (captured 2026-10-21).
+		{"cancel", NewTaskUpdate(NewUUID(), builderNow).Cancel(builderNow),
+			map[string]any{"ss": float64(2), "sp": float64(builderNow.Unix())}},
+		// A reminder is the time of day on the start date, in seconds from
+		// midnight in the local zone; none clears it (captured 2026-10-21).
+		{"reminder", NewTaskUpdate(NewUUID(), builderNow).Reminder(&nineOClock),
+			map[string]any{"ato": float64(32400)}},
+		{"no reminder", NewTaskUpdate(NewUUID(), builderNow).Reminder(nil),
+			map[string]any{"ato": nil}},
 		{"reopen", NewTaskUpdate(NewUUID(), builderNow).Reopen(),
 			map[string]any{"ss": float64(0), "sp": nil}},
 		{"trash", NewTaskUpdate(NewUUID(), builderNow).Trash(true),

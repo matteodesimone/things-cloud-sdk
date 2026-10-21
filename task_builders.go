@@ -173,6 +173,26 @@ func (u *TaskUpdate) Complete(at time.Time) *TaskUpdate {
 	return u
 }
 
+// Cancel marks the task canceled at the given time, as «Mark as
+// canceled» in the app does: the completion with the status canceled.
+func (u *TaskUpdate) Cancel(at time.Time) *TaskUpdate {
+	u.fields["ss"], u.fields["sp"] = TaskStatusCanceled, stamp(at)
+	return u
+}
+
+// Reminder sets the reminder of the task, the time of day on its start
+// date as an offset from midnight in the local zone (Things writes it in
+// seconds), or clears it when at is nil. Things wants a start date for a
+// reminder: the caller sets one in the same update when the task has none.
+func (u *TaskUpdate) Reminder(at *time.Duration) *TaskUpdate {
+	if at == nil {
+		u.fields["ato"] = nil
+	} else {
+		u.fields["ato"] = int64(at.Seconds())
+	}
+	return u
+}
+
 // Reopen marks the task open again, clearing its completion date.
 func (u *TaskUpdate) Reopen() *TaskUpdate {
 	u.fields["ss"], u.fields["sp"] = TaskStatusPending, nil
