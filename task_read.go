@@ -10,7 +10,7 @@ import (
 
 // TaskReplayVersion identifies the task read semantics used to build derived
 // state. Cached state from older generations must be replayed from scratch.
-const TaskReplayVersion = 6
+const TaskReplayVersion = 7
 
 // UnsupportedTaskKindError means the task state would be incomplete if replay
 // continued. ServerIndex is -1 when the source did not provide an index.
@@ -163,6 +163,9 @@ func (p TaskReadPayload) ApplyNulls(task *Task) {
 			task.CompletionDate = nil
 		case "dd":
 			task.DeadlineDate = nil
+			task.RepeatsWithDeadlines = false
+		case "tir":
+			task.TodayIndexReference = nil
 		case "dds":
 			task.DeadlineSuppressionDate = nil
 		case "ato":

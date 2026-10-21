@@ -237,6 +237,14 @@ type Task struct {
 	// InstanceCreationCount (icc) counts the instances a recurring
 	// template has created so far.
 	InstanceCreationCount int
+	// RepeatsWithDeadlines marks a recurring template with deadlines («Add
+	// deadlines»): Things writes its dd at 4001-01-01, and each instance
+	// gets the date of its occurrence as its deadline (captured
+	// 2026-10-21).
+	RepeatsWithDeadlines bool
+	// TodayIndexReference is tir. On a recurring template it is the start
+	// date of the next instance the template creates (captured 2026-10-21).
+	TodayIndexReference *time.Time
 }
 
 // TaskActionItemPayload describes the payload for modifying Tasks, and also Projects,

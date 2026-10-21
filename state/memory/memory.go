@@ -126,6 +126,12 @@ func (s *State) updateTask(item things.TaskActionItem) *things.Task {
 	}
 	if item.P.DeadlineDate != nil {
 		t.DeadlineDate = item.P.DeadlineDate.Date()
+		// The 4001-01-01 placeholder is no deadline, and on a template it
+		// says that its instances get one.
+		t.RepeatsWithDeadlines = t.DeadlineDate == nil
+	}
+	if item.P.TaskIR != nil {
+		t.TodayIndexReference = item.P.TaskIR.Date()
 	}
 	if item.P.DeadlineSuppression != nil {
 		t.DeadlineSuppressionDate = item.P.DeadlineSuppression.Date()
