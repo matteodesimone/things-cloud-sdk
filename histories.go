@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -250,7 +251,7 @@ func (h *History) Write(items ...Identifiable) error {
 	}
 	ancestorIndex := h.LatestServerIndex
 	if plan.needsPreflight() {
-		checkedHead, err := h.preflightTask7Modifications(plan.modificationTargets)
+		checkedHead, err := h.preflightTask7Modifications(plan.modificationTargets, plan.modificationKeys)
 		if err != nil {
 			return err
 		}
@@ -309,14 +310,29 @@ type task7TargetState struct {
 	rpActive bool
 	rtKnown  bool
 	rtActive bool
-	icsd     bool
-	acrd     bool
+	// rtTemplate is the template of an instance, when rt names one.
+	rtTemplate string
+	icsd       bool
+	acrd       bool
 
 	// otherKind is set when a non-task event names the target.
 	otherKind bool
 }
 
-func (h *History) preflightTask7Modifications(targets map[string]struct{}) (int, error) {
+// instanceKeys are the properties the app writes on an instance of a
+// template with deadlines to complete it, cancel it or move its start date
+// (captured 2026-10-21).
+var instanceKeys = map[string]struct{}{"md": {}, "ss": {}, "sp": {}, "st": {}, "sr": {}, "tir": {}}
+
+// deadlineTemplate is what the preflight keeps of every task of the
+// history, to know whether a target is an instance of a recurring
+// template with deadlines («Add deadlines»: dd at 4001-01-01).
+type deadlineTemplate struct {
+	recurring, deadlines bool
+}
+
+func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys map[string][]string) (int, error) {
+	templates := map[string]*deadlineTemplate{}
 	states := make(map[string]*task7TargetState, len(targets))
 	for id := range targets {
 		states[id] = &task7TargetState{lastAffectedIndex: -1}
@@ -349,6 +365,7 @@ func (h *History) preflightTask7Modifications(targets map[string]struct{}) (int,
 			if err := applyTask7PreflightItem(states, item); err != nil {
 				return 0, err
 			}
+			applyDeadlineTemplateItem(templates, item)
 		}
 		if snapshot.LoadedServerIndex >= checkedHead {
 			break
@@ -371,6 +388,7 @@ func (h *History) preflightTask7Modifications(targets map[string]struct{}) (int,
 			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "is ambiguous"}
 		case !state.rrKnown || !state.rpKnown || !state.rtKnown:
 			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "lacks complete recurrence markers"}
+		case writableInstance(state, templates, keys[id]):
 		case state.rrActive || state.rpActive || state.rtActive || state.icsd || state.acrd:
 			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is recurring"}
 		}
@@ -460,10 +478,14 @@ func applyTask7PreflightItem(states map[string]*task7TargetState, item Item) err
 	applyRawRecurrenceMarker(payload, "rp", &state.rpKnown, &state.rpActive)
 	if raw, ok := payload["rt"]; ok {
 		state.rtKnown = true
+		state.rtTemplate = ""
 		if jsonNull(raw) {
 			state.rtActive = false
 		} else if values, err := jsonStringArray(raw); err == nil {
 			state.rtActive = len(values) != 0
+			if len(values) == 1 {
+				state.rtTemplate = values[0]
+			}
 		} else {
 			state.ambiguous = true
 		}
@@ -471,6 +493,57 @@ func applyTask7PreflightItem(states map[string]*task7TargetState, item Item) err
 	applyRawPresenceMarker(payload, "icsd", &state.icsd)
 	applyRawPresenceMarker(payload, "acrd", &state.acrd)
 	return nil
+}
+
+// writableInstance says whether a target is an instance of a template with
+// deadlines, and the modification writes only what the app writes on one.
+func writableInstance(state *task7TargetState, templates map[string]*deadlineTemplate, keys []string) bool {
+	if !state.rtActive || state.rrActive || state.rpActive || state.icsd || state.acrd || state.rtTemplate == "" {
+		return false
+	}
+	t := templates[state.rtTemplate]
+	if t == nil || !t.recurring || !t.deadlines {
+		return false
+	}
+	for _, key := range keys {
+		if _, ok := instanceKeys[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// applyDeadlineTemplateItem keeps, for every task, whether it is a
+// recurring template and whether it has deadlines.
+func applyDeadlineTemplateItem(templates map[string]*deadlineTemplate, item Item) {
+	if item.Kind != ItemKindTask7 {
+		if item.Kind == ItemKind("Tombstone2") || item.Kind == ItemKind("Tombstone") {
+			var payload TombstoneActionItemPayload
+			if json.Unmarshal(item.P, &payload) == nil {
+				delete(templates, payload.DeletedObjectID)
+			}
+		}
+		return
+	}
+	payload, err := jsonObject(item.P)
+	if err != nil {
+		delete(templates, item.UUID)
+		return
+	}
+	t := templates[item.UUID]
+	if t == nil || item.Action == ItemActionCreated {
+		t = &deadlineTemplate{}
+		templates[item.UUID] = t
+	}
+	if raw, ok := payload["rr"]; ok {
+		t.recurring = !jsonNull(raw)
+	}
+	if raw, ok := payload["dd"]; ok {
+		t.deadlines = false
+		if v, ok := jsonInteger(raw); ok {
+			t.deadlines = time.Unix(v, 0).UTC().Year() == noDateYear
+		}
+	}
 }
 
 func (s *task7TargetState) markAffected(serverIndex int) {

@@ -2,6 +2,7 @@ package thingscloud
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -143,6 +144,56 @@ func TestHistoryWriteRejectsRecurringAndAmbiguousTask7TargetsBeforePost(t *testi
 				t.Fatalf("sent %d POSTs, want zero", posts)
 			}
 		})
+	}
+}
+
+// An instance of a recurring template with deadlines («Add deadlines»:
+// dd at 4001-01-01 on the template) takes the three writes the app makes on
+// it: completing, canceling and moving its start date (captured
+// 2026-10-21). The template itself, an instance of a template without
+// deadlines, and any other field of the instance stay refused.
+func TestHistoryWriteTask7InstanceOfADeadlineTemplate(t *testing.T) {
+	template, instance, plain, plainInstance := NewUUID(), NewUUID(), NewUUID(), NewUUID()
+	history := historyPage(4,
+		taskHistoryBatch(template, ItemKindTask7, 0, `{"rr":{"fu":4},"rp":null,"rt":[],"dd":64092211200,"icsd":1792627200}`),
+		taskHistoryBatch(instance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+template+`"],"dd":1792972800,"icsd":null,"acrd":null}`),
+		taskHistoryBatch(plain, ItemKindTask7, 0, `{"rr":{"fu":16},"rp":null,"rt":[],"dd":null,"icsd":1792627200}`),
+		taskHistoryBatch(plainInstance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+plain+`"],"dd":null,"icsd":null,"acrd":null}`),
+	)
+	write := func(target, fields string) (int, error) {
+		posts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				posts++
+				fmt.Fprint(w, `{"server-head-index":5}`)
+				return
+			}
+			fmt.Fprint(w, history)
+		}))
+		defer server.Close()
+		h := New(server.URL, "test@example.com", "password").HistoryWithID("history")
+		err := h.Write(rawWriteProbe{id: target, body: task7UpdateBody(fields)})
+		return posts, err
+	}
+	for name, fields := range map[string]string{
+		"complete": `"ss":3,"sp":1792575000`,
+		"cancel":   `"ss":2,"sp":1792575000`,
+		"start":    `"st":2,"sr":1792627200,"tir":1792627200`,
+	} {
+		if posts, err := write(instance, fields); err != nil || posts != 1 {
+			t.Errorf("%s on the instance: posts %d, %v", name, posts, err)
+		}
+	}
+	for name, c := range map[string]struct{ target, fields string }{
+		"a title on the instance":              {instance, `"tt":"renamed"`},
+		"the deadline of the instance":         {instance, `"dd":1793059200`},
+		"the template":                         {template, `"ss":3,"sp":1792575000`},
+		"an instance of a template without dd": {plainInstance, `"ss":3,"sp":1792575000`},
+	} {
+		posts, err := write(c.target, c.fields)
+		if err == nil || posts != 0 || !errors.Is(err, ErrRecurring) {
+			t.Errorf("%s: posts %d, %v", name, posts, err)
+		}
 	}
 }
 

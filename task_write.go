@@ -14,8 +14,11 @@ import (
 
 type task7WritePlan struct {
 	modificationTargets map[string]struct{}
-	creationTargets     map[string]struct{}
-	tombstoneTargets    map[string]struct{}
+	// modificationKeys are the properties each modification writes: an
+	// instance of a template with deadlines takes only some of them.
+	modificationKeys map[string][]string
+	creationTargets  map[string]struct{}
+	tombstoneTargets map[string]struct{}
 }
 
 func (p *task7WritePlan) needsPreflight() bool { return len(p.modificationTargets) != 0 }
@@ -27,6 +30,7 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 	}
 	plan := &task7WritePlan{
 		modificationTargets: make(map[string]struct{}),
+		modificationKeys:    make(map[string][]string),
 		creationTargets:     make(map[string]struct{}),
 		tombstoneTargets:    make(map[string]struct{}),
 	}
@@ -76,6 +80,9 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 				err = validateTask7Modification(payload)
 				if err == nil {
 					plan.modificationTargets[id] = struct{}{}
+					for key := range payload {
+						plan.modificationKeys[id] = append(plan.modificationKeys[id], key)
+					}
 				}
 			default:
 				err = fmt.Errorf("Task7 action %d is outside the verified write scope", action)

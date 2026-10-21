@@ -32,7 +32,12 @@ An edit cannot combine area with project or heading; project plus heading is
 supported. This avoids silently choosing between conflicting destinations or
 leaving a task attached to its previous container.
 
-Task7 modifications require an existing, nonrecurring target. Before posting,
+Task7 modifications require an existing, nonrecurring target, with one
+exception: an instance of a recurring template with deadlines («Add
+deadlines», `dd` at 4001-01-01 on the template) takes the writes the app
+makes on it to complete it (`ss` 3), cancel it (`ss` 2) or move its start
+date (`st`, `sr`, `tir`), with `md` and `sp` and nothing else (captured
+2026-10-21). The template and every other instance stay refused. Before posting,
 `History.Write` reads raw history from index zero and classifies the targeted
 UUIDs. A single scan covers every Task7 update in the batch. This avoids
 relying on the public `Task` projection, which does not retain every recurrence
