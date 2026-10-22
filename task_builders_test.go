@@ -465,3 +465,22 @@ func TestTaskUpdateRepeatEvery(t *testing.T) {
 		t.Errorf("ed %v", ed)
 	}
 }
+
+// The companion of the completion of an instance repeating after
+// completion (captured 2026-10-22, commit 308): on its template the start
+// of the next instance and the day of the completion, without md.
+func TestNewAfterCompletionAdvance(t *testing.T) {
+	t.Parallel()
+
+	next := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+	b, err := json.Marshal(NewAfterCompletionAdvance("Tpl", next, builderNow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env map[string]any
+	json.Unmarshal(b, &env)
+	p := env["p"].(map[string]any)
+	if env["t"] != float64(1) || len(p) != 2 || p["tir"] != float64(next.Unix()) || p["acrd"] != float64(builderToday.Unix()) {
+		t.Errorf("payload %s", b)
+	}
+}

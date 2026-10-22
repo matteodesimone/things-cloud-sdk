@@ -177,8 +177,12 @@ A recurring template on fixed dates without deadlines (`dd` null, `rr.tp`
 - **Instances** take complete, cancel and a start date, as those of a
   template with deadlines.
 
-A template repeating after completion (`tp` 1) and its instances stay
-refused: completing an instance the app writes its template too.
+An instance of a template repeating after completion (`tp` 1) is completed
+as the app does it (captured 2026-10-22): in one write, `{ss: 3, sp, md}` on
+the instance and, on its template, the start of the next instance and the
+day of the completion, `{tir, acrd}` without `md`
+(`NewAfterCompletionAdvance`). Either alone is refused, as every other write
+on these templates and instances.
 
 When the app makes a recurring todo of an existing one it deletes the todo
 (`t` 2, outside this write scope) and creates a template; writers trash the

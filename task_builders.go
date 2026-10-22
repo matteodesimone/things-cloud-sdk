@@ -439,3 +439,13 @@ func (u *TaskUpdate) RepeatEvery(rule RepeatingRule, first *time.Time) *TaskUpda
 	}
 	return u
 }
+
+// NewAfterCompletionAdvance is what the app writes on a template repeating
+// after completion when one of its instances is completed, in the same
+// commit as the completion (captured 2026-10-22, commit 308): the start of
+// its next instance (tir) and the day of the completion (acrd), without a
+// modification date.
+func NewAfterCompletionAdvance(template string, next, done time.Time) Identifiable {
+	return writeItem{id: template, action: ItemActionModified, kind: ItemKindTask7,
+		payload: map[string]any{"tir": dayStamp(next), "acrd": dayStamp(done)}}
+}

@@ -252,7 +252,7 @@ func (h *History) Write(items ...Identifiable) error {
 	}
 	ancestorIndex := h.LatestServerIndex
 	if plan.needsPreflight() {
-		checkedHead, err := h.preflightTask7Modifications(plan.modificationTargets, plan.modificationKeys, plan.modificationRules)
+		checkedHead, err := h.preflightTask7Modifications(plan)
 		if err != nil {
 			return err
 		}
@@ -330,10 +330,11 @@ var instanceKeys = map[string]struct{}{"md": {}, "ss": {}, "sp": {}, "st": {}, "
 // template on fixed dates (rr.tp 0), and whether the template has
 // deadlines («Add deadlines»: dd at 4001-01-01).
 type deadlineTemplate struct {
-	recurring, fixed, deadlines bool
+	recurring, fixed, afterCompletion, deadlines bool
 }
 
-func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys map[string][]string, rules map[string]json.RawMessage) (int, error) {
+func (h *History) preflightTask7Modifications(plan *task7WritePlan) (int, error) {
+	targets, keys, rules := plan.modificationTargets, plan.modificationKeys, plan.modificationRules
 	templates := map[string]*deadlineTemplate{}
 	states := make(map[string]*task7TargetState, len(targets))
 	for id := range targets {
@@ -391,6 +392,8 @@ func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys 
 		case !state.rrKnown || !state.rpKnown || !state.rtKnown:
 			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "lacks complete recurrence markers"}
 		case writableInstance(state, templates, keys[id]):
+		case completedAfterCompletion(state, templates, id, plan):
+		case advancedAfterCompletion(states, templates, id, plan):
 		case writableTemplate(state, templates[id], keys[id], rules[id]):
 		case templateOnly(keys[id]):
 			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is not a template that takes this rule"}
@@ -520,6 +523,55 @@ func writableInstance(state *task7TargetState, templates map[string]*deadlineTem
 	return true
 }
 
+// completedAfterCompletion says whether a target is an instance of a
+// template repeating after completion, completed (ss 3, sp, md) in the
+// same write as the companion on its template (captured 2026-10-22).
+func completedAfterCompletion(state *task7TargetState, templates map[string]*deadlineTemplate, id string, plan *task7WritePlan) bool {
+	if !state.rtActive || state.rrActive || state.rpActive || state.icsd || state.acrd || state.rtTemplate == "" {
+		return false
+	}
+	t := templates[state.rtTemplate]
+	if t == nil || !t.recurring || !t.afterCompletion || plan.modificationStatus[id] != int64(TaskStatusCompleted) {
+		return false
+	}
+	if !sameKeys(plan.modificationKeys[id], "md", "ss", "sp") {
+		return false
+	}
+	return sameKeys(plan.modificationKeys[state.rtTemplate], "tir", "acrd")
+}
+
+// advancedAfterCompletion says whether a target is a template repeating
+// after completion that takes the companion {tir, acrd} of the completion
+// of one of its instances in the same write.
+func advancedAfterCompletion(states map[string]*task7TargetState, templates map[string]*deadlineTemplate, id string, plan *task7WritePlan) bool {
+	t, state := templates[id], states[id]
+	if t == nil || !t.recurring || !t.afterCompletion || !state.rrActive || state.rpActive || state.rtActive {
+		return false
+	}
+	if !sameKeys(plan.modificationKeys[id], "tir", "acrd") {
+		return false
+	}
+	for other, s := range states {
+		if other != id && s.rtTemplate == id && completedAfterCompletion(s, templates, other, plan) {
+			return true
+		}
+	}
+	return false
+}
+
+// sameKeys says whether the properties a modification writes are these.
+func sameKeys(keys []string, want ...string) bool {
+	if len(keys) != len(want) {
+		return false
+	}
+	for _, k := range want {
+		if !slices.Contains(keys, k) {
+			return false
+		}
+	}
+	return true
+}
+
 // deadlineTemplateWrites are the writes the app makes on a template with
 // deadlines (captured 2026-10-21, commits 98–102), each with the
 // modification date: title and note, the rule with the start of its next
@@ -603,10 +655,10 @@ func applyDeadlineTemplateItem(templates map[string]*deadlineTemplate, item Item
 	}
 	if raw, ok := payload["rr"]; ok {
 		t.recurring = !jsonNull(raw)
-		t.fixed = false
+		t.fixed, t.afterCompletion = false, false
 		if rr, err := jsonObject(raw); err == nil {
 			tp, ok := jsonInteger(rr["tp"])
-			t.fixed = ok && tp == 0
+			t.fixed, t.afterCompletion = ok && tp == 0, ok && tp == 1
 		}
 	}
 	if raw, ok := payload["dd"]; ok {

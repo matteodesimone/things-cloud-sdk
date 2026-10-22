@@ -757,3 +757,53 @@ func TestHistoryWriteTask7RepeatingTemplate(t *testing.T) {
 		}
 	}
 }
+
+// An instance of a template repeating after completion is completed as the
+// app does it (captured 2026-10-22, commit 308): in one commit the instance
+// takes ss 3, sp and md, and its template the start of its next instance
+// and the day of the completion, {tir, acrd}, without md. Either alone, the
+// companion on a template on fixed dates, or another field stay refused.
+func TestHistoryWriteTask7InstanceAfterCompletion(t *testing.T) {
+	template, instance, fixed, fixedInstance := NewUUID(), NewUUID(), NewUUID(), NewUUID()
+	history := historyPage(4,
+		taskHistoryBatch(template, ItemKindTask7, 0, `{"rr":{"fu":256,"tp":1},"rp":null,"rt":[],"dd":null,"icsd":1792713600,"acrd":null}`),
+		taskHistoryBatch(instance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+template+`"],"dd":null,"icsd":null,"acrd":null}`),
+		taskHistoryBatch(fixed, ItemKindTask7, 0, `{"rr":{"fu":256,"tp":0},"rp":null,"rt":[],"dd":null,"icsd":1792713600,"acrd":null}`),
+		taskHistoryBatch(fixedInstance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+fixed+`"],"dd":null,"icsd":null,"acrd":null}`),
+	)
+	write := func(items ...Identifiable) (int, error) {
+		posts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				posts++
+				fmt.Fprint(w, `{"server-head-index":5}`)
+				return
+			}
+			fmt.Fprint(w, history)
+		}))
+		defer server.Close()
+		h := New(server.URL, "test@example.com", "password").HistoryWithID("history")
+		err := h.Write(items...)
+		return posts, err
+	}
+	companion := func(id string) Identifiable {
+		return rawWriteProbe{id: id, body: `{"e":"Task7","t":1,"p":{"tir":1793232000,"acrd":1792627200}}`}
+	}
+	complete := func(id string) Identifiable {
+		return rawWriteProbe{id: id, body: task7UpdateBody(`"ss":3,"sp":1792675102.4`)}
+	}
+	if posts, err := write(complete(instance), companion(template)); err != nil || posts != 1 {
+		t.Errorf("the completion with its companion: posts %d, %v", posts, err)
+	}
+	for name, items := range map[string][]Identifiable{
+		"the completion alone":                       {complete(instance)},
+		"the companion alone":                        {companion(template)},
+		"the companion on a template on fixed dates": {complete(fixedInstance), companion(fixed)},
+		"a title on the instance with the companion": {rawWriteProbe{id: instance, body: task7UpdateBody(`"tt":"x"`)}, companion(template)},
+		"the companion with md":                      {complete(instance), rawWriteProbe{id: template, body: task7UpdateBody(`"tir":1793232000,"acrd":1792627200`)}},
+	} {
+		if posts, err := write(items...); err == nil || posts != 0 {
+			t.Errorf("%s: posts %d, %v", name, posts, err)
+		}
+	}
+}

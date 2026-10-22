@@ -20,8 +20,12 @@ type task7WritePlan struct {
 	// modificationRules are the rules the modifications write: a template
 	// takes only a rule of its kind.
 	modificationRules map[string]json.RawMessage
-	creationTargets   map[string]struct{}
-	tombstoneTargets  map[string]struct{}
+	// modificationStatus is the status a modification writes (ss), when it
+	// writes one: the companion of a template after completion goes with a
+	// completion only.
+	modificationStatus map[string]int64
+	creationTargets    map[string]struct{}
+	tombstoneTargets   map[string]struct{}
 }
 
 func (p *task7WritePlan) needsPreflight() bool { return len(p.modificationTargets) != 0 }
@@ -35,6 +39,7 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 		modificationTargets: make(map[string]struct{}),
 		modificationKeys:    make(map[string][]string),
 		modificationRules:   make(map[string]json.RawMessage),
+		modificationStatus:  make(map[string]int64),
 		creationTargets:     make(map[string]struct{}),
 		tombstoneTargets:    make(map[string]struct{}),
 	}
@@ -89,6 +94,9 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 					}
 					if rule, ok := payload["rr"]; ok {
 						plan.modificationRules[id] = rule
+					}
+					if ss, ok := jsonInteger(payload["ss"]); ok {
+						plan.modificationStatus[id] = ss
 					}
 				}
 			default:
@@ -258,7 +266,7 @@ func validateTask7Create(p map[string]json.RawMessage) error {
 var task7ModificationKeys = map[string]struct{}{
 	"md": {}, "tt": {}, "nt": {}, "st": {}, "sr": {}, "tir": {}, "dd": {}, "ar": {},
 	"pr": {}, "agr": {}, "tg": {}, "ss": {}, "sp": {}, "tr": {}, "ix": {}, "ti": {}, "do": {},
-	"dds": {}, "ato": {}, "rr": {}, "icsd": {},
+	"dds": {}, "ato": {}, "rr": {}, "icsd": {}, "acrd": {},
 }
 
 // validateDeadlineTemplateCreate checks the creation of a recurring
@@ -540,6 +548,21 @@ func validateTask7Modification(p map[string]json.RawMessage) error {
 		if _, ok := task7ModificationKeys[key]; !ok {
 			return fmt.Errorf("modification contains a property outside the verified write scope")
 		}
+	}
+	// The companion of the completion of an instance repeating after
+	// completion, on its template: the start of the next instance and the
+	// day of the completion, without md (captured 2026-10-22). The preflight
+	// checks it goes with that completion.
+	if _, ok := p["acrd"]; ok {
+		if exactKeys(p, map[string]struct{}{"tir": {}, "acrd": {}}) != nil {
+			return fmt.Errorf("modification acrd goes with tir alone, as the companion of a completion")
+		}
+		for _, key := range []string{"tir", "acrd"} {
+			if value, ok := jsonInteger(p[key]); !ok || value <= 0 {
+				return fmt.Errorf("modification %s must be a day", key)
+			}
+		}
+		return nil
 	}
 	// The deadline suppression is only cleared, as the app does with a new
 	// deadline (captured 2026-10-21); setting it is not verified.
