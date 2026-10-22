@@ -167,6 +167,14 @@ func (u *TaskUpdate) Deadline(day *time.Time) *TaskUpdate {
 	return u
 }
 
+// PostponeDeadline moves the deadline of an occurrence of a deadline, as
+// the app writes it on the instance (captured 2026-10-22, commit 311): the
+// deadline alone, the suppression from Today as it is.
+func (u *TaskUpdate) PostponeDeadline(day time.Time) *TaskUpdate {
+	u.fields["dd"] = dayStamp(day)
+	return u
+}
+
 // Complete marks the task completed at the given time.
 func (u *TaskUpdate) Complete(at time.Time) *TaskUpdate {
 	u.fields["ss"], u.fields["sp"] = TaskStatusCompleted, stamp(at)

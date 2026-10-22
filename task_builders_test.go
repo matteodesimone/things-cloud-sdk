@@ -484,3 +484,15 @@ func TestNewAfterCompletionAdvance(t *testing.T) {
 		t.Errorf("payload %s", b)
 	}
 }
+
+// The postponement of an occurrence of a deadline (captured 2026-10-22,
+// commit 311): the deadline of the instance, without clearing dds.
+func TestTaskUpdatePostponeDeadline(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	env := checkWritable(t, NewTaskUpdate(NewUUID(), builderNow).PostponeDeadline(day))
+	if keys := payloadKeys(env); !reflect.DeepEqual(keys, []string{"dd", "md"}) || env["p"].(map[string]any)["dd"] != float64(day.Unix()) {
+		t.Errorf("payload %v", env)
+	}
+}

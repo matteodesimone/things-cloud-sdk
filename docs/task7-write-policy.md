@@ -187,3 +187,7 @@ on these templates and instances.
 When the app makes a recurring todo of an existing one it deletes the todo
 (`t` 2, outside this write scope) and creates a template; writers trash the
 todo and create the template instead.
+
+An instance of a template with deadlines also takes its deadline alone,
+`{dd, md}`, the postponement of that occurrence (`TaskUpdate.PostponeDeadline`,
+captured 2026-10-22, commit 311).

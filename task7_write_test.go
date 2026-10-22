@@ -193,10 +193,17 @@ func TestHistoryWriteTask7InstanceOfAFixedTemplate(t *testing.T) {
 			}
 		}
 	}
+	// The postponement of the occurrence alone, on an instance of a
+	// template with deadlines: its deadline, nothing else (captured
+	// 2026-10-22, commit 311).
+	if posts, err := write(instance, `"dd":1793059200`); err != nil || posts != 1 {
+		t.Errorf("the deadline of the instance with deadlines: posts %d, %v", posts, err)
+	}
 	for name, c := range map[string]struct{ target, fields string }{
-		"a title on the instance":                       {instance, `"tt":"renamed"`},
-		"the deadline of the instance":                  {instance, `"dd":1793059200`},
-		"a title on the instance without deadlines":     {plainInstance, `"tt":"renamed"`},
+		"a title on the instance":                        {instance, `"tt":"renamed"`},
+		"the deadline of the instance without deadlines": {plainInstance, `"dd":1793059200`},
+		"the deadline with something else":               {instance, `"dd":1793059200,"st":2,"sr":1792627200,"tir":1792627200`},
+		"a title on the instance without deadlines":      {plainInstance, `"tt":"renamed"`},
 		"the template":                                  {template, `"ss":3,"sp":1792575000`},
 		"the template without deadlines":                {plain, `"ss":3,"sp":1792575000`},
 		"an instance of a template after completion":    {afterInstance, `"ss":3,"sp":1792575000`},

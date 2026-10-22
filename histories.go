@@ -515,6 +515,11 @@ func writableInstance(state *task7TargetState, templates map[string]*deadlineTem
 	if t == nil || !t.recurring || !(t.fixed || t.deadlines) {
 		return false
 	}
+	// The deadline of an occurrence of a deadline moves alone (captured
+	// 2026-10-22, commit 311).
+	if t.deadlines && sameKeys(keys, "dd", "md") {
+		return true
+	}
 	for _, key := range keys {
 		if _, ok := instanceKeys[key]; !ok {
 			return false
