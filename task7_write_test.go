@@ -193,6 +193,13 @@ func TestHistoryWriteTask7InstanceOfAFixedTemplate(t *testing.T) {
 			}
 		}
 	}
+	// The trash of an instance, with deadlines or without (captured
+	// 2026-10-22, commits 314 and 323): {tr, md} on the instance alone.
+	for kind, target := range map[string]string{"with deadlines": instance, "without deadlines": plainInstance} {
+		if posts, err := write(target, `"tr":true`); err != nil || posts != 1 {
+			t.Errorf("the trash of the instance %s: posts %d, %v", kind, posts, err)
+		}
+	}
 	// The postponement of the occurrence alone, on an instance of a
 	// template with deadlines: its deadline, nothing else (captured
 	// 2026-10-22, commit 311).
@@ -801,6 +808,13 @@ func TestHistoryWriteTask7InstanceAfterCompletion(t *testing.T) {
 	}
 	if posts, err := write(complete(instance), companion(template)); err != nil || posts != 1 {
 		t.Errorf("the completion with its companion: posts %d, %v", posts, err)
+	}
+	// Cancelled or trashed, the same companion (captured 2026-10-22,
+	// commits 316 and 319).
+	for name, fields := range map[string]string{"cancel": `"ss":2,"sp":1792675609.0`, "trash": `"tr":true`} {
+		if posts, err := write(rawWriteProbe{id: instance, body: task7UpdateBody(fields)}, companion(template)); err != nil || posts != 1 {
+			t.Errorf("%s with its companion: posts %d, %v", name, posts, err)
+		}
 	}
 	for name, items := range map[string][]Identifiable{
 		"the completion alone":                       {complete(instance)},

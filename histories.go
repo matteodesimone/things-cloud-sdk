@@ -392,7 +392,8 @@ func (h *History) preflightTask7Modifications(plan *task7WritePlan) (int, error)
 		case !state.rrKnown || !state.rpKnown || !state.rtKnown:
 			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "lacks complete recurrence markers"}
 		case writableInstance(state, templates, keys[id]):
-		case completedAfterCompletion(state, templates, id, plan):
+		case trashedInstance(state, templates, id, plan):
+		case endedAfterCompletion(state, templates, id, plan):
 		case advancedAfterCompletion(states, templates, id, plan):
 		case writableTemplate(state, templates[id], keys[id], rules[id]):
 		case templateOnly(keys[id]):
@@ -528,26 +529,38 @@ func writableInstance(state *task7TargetState, templates map[string]*deadlineTem
 	return true
 }
 
-// completedAfterCompletion says whether a target is an instance of a
-// template repeating after completion, completed (ss 3, sp, md) in the
-// same write as the companion on its template (captured 2026-10-22).
-func completedAfterCompletion(state *task7TargetState, templates map[string]*deadlineTemplate, id string, plan *task7WritePlan) bool {
+// trashedInstance says whether a target is an instance of a template on
+// fixed dates or with deadlines put in the trash, {tr: true, md}, as the
+// app does with nothing on the template (captured 2026-10-22, commits 314
+// and 323).
+func trashedInstance(state *task7TargetState, templates map[string]*deadlineTemplate, id string, plan *task7WritePlan) bool {
+	if !plan.modificationTrash[id] || !sameKeys(plan.modificationKeys[id], "tr", "md") {
+		return false
+	}
+	return writableInstance(state, templates, nil)
+}
+
+// endedAfterCompletion says whether a target is an instance of a template
+// repeating after completion that ends, completed (ss 3), cancelled (ss 2)
+// or put in the trash, in the same write as the companion on its template
+// (captured 2026-10-22, commits 308, 316 and 319).
+func endedAfterCompletion(state *task7TargetState, templates map[string]*deadlineTemplate, id string, plan *task7WritePlan) bool {
 	if !state.rtActive || state.rrActive || state.rpActive || state.icsd || state.acrd || state.rtTemplate == "" {
 		return false
 	}
 	t := templates[state.rtTemplate]
-	if t == nil || !t.recurring || !t.afterCompletion || plan.modificationStatus[id] != int64(TaskStatusCompleted) {
+	if t == nil || !t.recurring || !t.afterCompletion {
 		return false
 	}
-	if !sameKeys(plan.modificationKeys[id], "md", "ss", "sp") {
-		return false
-	}
-	return sameKeys(plan.modificationKeys[state.rtTemplate], "tir", "acrd")
+	keys, ss := plan.modificationKeys[id], plan.modificationStatus[id]
+	ended := (sameKeys(keys, "md", "ss", "sp") && (ss == int64(TaskStatusCompleted) || ss == int64(TaskStatusCanceled))) ||
+		(sameKeys(keys, "md", "tr") && plan.modificationTrash[id])
+	return ended && sameKeys(plan.modificationKeys[state.rtTemplate], "tir", "acrd")
 }
 
 // advancedAfterCompletion says whether a target is a template repeating
-// after completion that takes the companion {tir, acrd} of the completion
-// of one of its instances in the same write.
+// after completion that takes the companion {tir, acrd} of the end of one
+// of its instances in the same write.
 func advancedAfterCompletion(states map[string]*task7TargetState, templates map[string]*deadlineTemplate, id string, plan *task7WritePlan) bool {
 	t, state := templates[id], states[id]
 	if t == nil || !t.recurring || !t.afterCompletion || !state.rrActive || state.rpActive || state.rtActive {
@@ -557,7 +570,7 @@ func advancedAfterCompletion(states map[string]*task7TargetState, templates map[
 		return false
 	}
 	for other, s := range states {
-		if other != id && s.rtTemplate == id && completedAfterCompletion(s, templates, other, plan) {
+		if other != id && s.rtTemplate == id && endedAfterCompletion(s, templates, other, plan) {
 			return true
 		}
 	}

@@ -24,8 +24,10 @@ type task7WritePlan struct {
 	// writes one: the companion of a template after completion goes with a
 	// completion only.
 	modificationStatus map[string]int64
-	creationTargets    map[string]struct{}
-	tombstoneTargets   map[string]struct{}
+	// modificationTrash are the modifications that put a task in the trash.
+	modificationTrash map[string]bool
+	creationTargets   map[string]struct{}
+	tombstoneTargets  map[string]struct{}
 }
 
 func (p *task7WritePlan) needsPreflight() bool { return len(p.modificationTargets) != 0 }
@@ -40,6 +42,7 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 		modificationKeys:    make(map[string][]string),
 		modificationRules:   make(map[string]json.RawMessage),
 		modificationStatus:  make(map[string]int64),
+		modificationTrash:   make(map[string]bool),
 		creationTargets:     make(map[string]struct{}),
 		tombstoneTargets:    make(map[string]struct{}),
 	}
@@ -97,6 +100,9 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 					}
 					if ss, ok := jsonInteger(payload["ss"]); ok {
 						plan.modificationStatus[id] = ss
+					}
+					if tr, ok := jsonBool(payload["tr"]); ok && tr {
+						plan.modificationTrash[id] = true
 					}
 				}
 			default:
