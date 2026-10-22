@@ -147,18 +147,25 @@ func TestHistoryWriteRejectsRecurringAndAmbiguousTask7TargetsBeforePost(t *testi
 	}
 }
 
-// An instance of a recurring template with deadlines («Add deadlines»:
-// dd at 4001-01-01 on the template) takes the three writes the app makes on
-// it: completing, canceling and moving its start date (captured
-// 2026-10-21). The template itself, an instance of a template without
-// deadlines, and any other field of the instance stay refused.
-func TestHistoryWriteTask7InstanceOfADeadlineTemplate(t *testing.T) {
+// An instance of a recurring template on fixed dates (rr.tp 0), with
+// deadlines («Add deadlines»: dd at 4001-01-01 on the template) or without,
+// takes the three writes the app makes on it: completing, canceling and
+// moving its start date (captured 2026-10-21 and 2026-10-22). The template
+// itself, an instance of a template repeating after completion (the app
+// writes its template too), and any other field of the instance stay
+// refused.
+func TestHistoryWriteTask7InstanceOfAFixedTemplate(t *testing.T) {
 	template, instance, plain, plainInstance := NewUUID(), NewUUID(), NewUUID(), NewUUID()
-	history := historyPage(4,
-		taskHistoryBatch(template, ItemKindTask7, 0, `{"rr":{"fu":4},"rp":null,"rt":[],"dd":64092211200,"icsd":1792627200}`),
+	after, afterInstance, untyped, untypedInstance := NewUUID(), NewUUID(), NewUUID(), NewUUID()
+	history := historyPage(8,
+		taskHistoryBatch(template, ItemKindTask7, 0, `{"rr":{"fu":4,"tp":0},"rp":null,"rt":[],"dd":64092211200,"icsd":1792627200}`),
 		taskHistoryBatch(instance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+template+`"],"dd":1792972800,"icsd":null,"acrd":null}`),
-		taskHistoryBatch(plain, ItemKindTask7, 0, `{"rr":{"fu":16},"rp":null,"rt":[],"dd":null,"icsd":1792627200}`),
+		taskHistoryBatch(plain, ItemKindTask7, 0, `{"rr":{"fu":256,"tp":0},"rp":null,"rt":[],"dd":null,"icsd":1792627200}`),
 		taskHistoryBatch(plainInstance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+plain+`"],"dd":null,"icsd":null,"acrd":null}`),
+		taskHistoryBatch(after, ItemKindTask7, 0, `{"rr":{"fu":16,"tp":1},"rp":null,"rt":[],"dd":null,"icsd":1792627200}`),
+		taskHistoryBatch(afterInstance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+after+`"],"dd":null,"icsd":null,"acrd":null}`),
+		taskHistoryBatch(untyped, ItemKindTask7, 0, `{"rr":{"fu":16},"rp":null,"rt":[],"dd":null,"icsd":1792627200}`),
+		taskHistoryBatch(untypedInstance, ItemKindTask7, 0, `{"rr":null,"rp":null,"rt":["`+untyped+`"],"dd":null,"icsd":null,"acrd":null}`),
 	)
 	write := func(target, fields string) (int, error) {
 		posts := 0
@@ -180,15 +187,20 @@ func TestHistoryWriteTask7InstanceOfADeadlineTemplate(t *testing.T) {
 		"cancel":   `"ss":2,"sp":1792575000`,
 		"start":    `"st":2,"sr":1792627200,"tir":1792627200`,
 	} {
-		if posts, err := write(instance, fields); err != nil || posts != 1 {
-			t.Errorf("%s on the instance: posts %d, %v", name, posts, err)
+		for kind, target := range map[string]string{"with deadlines": instance, "without deadlines": plainInstance} {
+			if posts, err := write(target, fields); err != nil || posts != 1 {
+				t.Errorf("%s on the instance %s: posts %d, %v", name, kind, posts, err)
+			}
 		}
 	}
 	for name, c := range map[string]struct{ target, fields string }{
-		"a title on the instance":              {instance, `"tt":"renamed"`},
-		"the deadline of the instance":         {instance, `"dd":1793059200`},
-		"the template":                         {template, `"ss":3,"sp":1792575000`},
-		"an instance of a template without dd": {plainInstance, `"ss":3,"sp":1792575000`},
+		"a title on the instance":                       {instance, `"tt":"renamed"`},
+		"the deadline of the instance":                  {instance, `"dd":1793059200`},
+		"a title on the instance without deadlines":     {plainInstance, `"tt":"renamed"`},
+		"the template":                                  {template, `"ss":3,"sp":1792575000`},
+		"the template without deadlines":                {plain, `"ss":3,"sp":1792575000`},
+		"an instance of a template after completion":    {afterInstance, `"ss":3,"sp":1792575000`},
+		"an instance of a template of no verified type": {untypedInstance, `"ss":3,"sp":1792575000`},
 	} {
 		posts, err := write(c.target, c.fields)
 		if err == nil || posts != 0 || !errors.Is(err, ErrRecurring) {

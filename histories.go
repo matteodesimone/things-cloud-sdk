@@ -321,15 +321,16 @@ type task7TargetState struct {
 }
 
 // instanceKeys are the properties the app writes on an instance of a
-// template with deadlines to complete it, cancel it or move its start date
-// (captured 2026-10-21).
+// template on fixed dates to complete it, cancel it or move its start date
+// (captured 2026-10-21 with deadlines, 2026-10-22 without).
 var instanceKeys = map[string]struct{}{"md": {}, "ss": {}, "sp": {}, "st": {}, "sr": {}, "tir": {}}
 
 // deadlineTemplate is what the preflight keeps of every task of the
 // history, to know whether a target is an instance of a recurring
-// template with deadlines («Add deadlines»: dd at 4001-01-01).
+// template on fixed dates (rr.tp 0), and whether the template has
+// deadlines («Add deadlines»: dd at 4001-01-01).
 type deadlineTemplate struct {
-	recurring, deadlines bool
+	recurring, fixed, deadlines bool
 }
 
 func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys map[string][]string) (int, error) {
@@ -499,14 +500,16 @@ func applyTask7PreflightItem(states map[string]*task7TargetState, item Item) err
 	return nil
 }
 
-// writableInstance says whether a target is an instance of a template with
-// deadlines, and the modification writes only what the app writes on one.
+// writableInstance says whether a target is an instance of a template on
+// fixed dates, and the modification writes only what the app writes on
+// one. An instance of a template repeating after completion is not: when
+// it is completed the app writes its template too.
 func writableInstance(state *task7TargetState, templates map[string]*deadlineTemplate, keys []string) bool {
 	if !state.rtActive || state.rrActive || state.rpActive || state.icsd || state.acrd || state.rtTemplate == "" {
 		return false
 	}
 	t := templates[state.rtTemplate]
-	if t == nil || !t.recurring || !t.deadlines {
+	if t == nil || !t.recurring || !t.fixed {
 		return false
 	}
 	for _, key := range keys {
@@ -581,6 +584,11 @@ func applyDeadlineTemplateItem(templates map[string]*deadlineTemplate, item Item
 	}
 	if raw, ok := payload["rr"]; ok {
 		t.recurring = !jsonNull(raw)
+		t.fixed = false
+		if rr, err := jsonObject(raw); err == nil {
+			tp, ok := jsonInteger(rr["tp"])
+			t.fixed = ok && tp == 0
+		}
 	}
 	if raw, ok := payload["dd"]; ok {
 		t.deadlines = false
