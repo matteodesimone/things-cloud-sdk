@@ -395,6 +395,7 @@ func (h *History) preflightTask7Modifications(plan *task7WritePlan) (int, error)
 		case trashedInstance(state, templates, id, plan):
 		case endedAfterCompletion(state, templates, id, plan):
 		case advancedAfterCompletion(states, templates, id, plan):
+		case trashedAfterCompletionTemplate(state, templates[id], id, plan):
 		case writableTemplate(state, templates[id], keys[id], rules[id]):
 		case templateOnly(keys[id]):
 			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is not a template that takes this rule"}
@@ -575,6 +576,17 @@ func advancedAfterCompletion(states map[string]*task7TargetState, templates map[
 		}
 	}
 	return false
+}
+
+// trashedAfterCompletionTemplate says whether a target is a template
+// repeating after completion put in the trash, {tr: true, md}, the only
+// write it takes alone (captured 2026-10-22, commit 260). Once one of its
+// instances is done it carries acrd, which does not count here.
+func trashedAfterCompletionTemplate(state *task7TargetState, t *deadlineTemplate, id string, plan *task7WritePlan) bool {
+	if t == nil || !t.recurring || !t.afterCompletion || !state.rrActive || state.rpActive || state.rtActive {
+		return false
+	}
+	return plan.modificationTrash[id] && sameKeys(plan.modificationKeys[id], "tr", "md")
 }
 
 // sameKeys says whether the properties a modification writes are these.

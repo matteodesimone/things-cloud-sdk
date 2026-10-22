@@ -740,6 +740,11 @@ func TestHistoryWriteTask7RepeatingTemplate(t *testing.T) {
 	}
 	weekly := `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":0,"ts":0,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":1794268800}`
 	deadlineRule := `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`
+	// A template after completion goes to the trash as the app does it
+	// (captured 2026-10-22, commit 260), and takes nothing else.
+	if posts, err := write(after, `"tr":true`); err != nil || posts != 1 {
+		t.Errorf("the trash of a template after completion: posts %d, %v", posts, err)
+	}
 	for name, fields := range map[string]string{
 		"title+note":   `"tt":"Prova settimanale","nt":{"_t":"tx","ch":0,"v":"","t":1}`,
 		"rule":         weekly + `,"tir":1793232000,"icsd":1793232000`,
@@ -754,16 +759,15 @@ func TestHistoryWriteTask7RepeatingTemplate(t *testing.T) {
 		}
 	}
 	for name, c := range map[string]struct{ target, fields string }{
-		"a deadline rule on it":         {template, deadlineRule},
-		"a rule starting in advance":    {template, `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":0,"ts":-2,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":64092211200}`},
-		"a rule after completion":       {template, `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":1,"ts":0,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":64092211200}`},
-		"complete it":                   {template, `"ss":3,"sp":1792575000`},
-		"a start date on it":            {template, `"st":2,"sr":1792627200,"tir":1792627200`},
-		"a weekly rule on a deadline":   {deadlines, weekly + `,"tir":1793232000,"icsd":1793232000`},
-		"the end alone on a deadline":   {deadlines, `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200}`},
-		"a reminder on a deadline":      {deadlines, `"ato":36000`},
-		"a title on a template after":   {after, `"tt":"x"`},
-		"the trash of a template after": {after, `"tr":true`},
+		"a deadline rule on it":       {template, deadlineRule},
+		"a rule starting in advance":  {template, `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":0,"ts":-2,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":64092211200}`},
+		"a rule after completion":     {template, `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":1,"ts":0,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":64092211200}`},
+		"complete it":                 {template, `"ss":3,"sp":1792575000`},
+		"a start date on it":          {template, `"st":2,"sr":1792627200,"tir":1792627200`},
+		"a weekly rule on a deadline": {deadlines, weekly + `,"tir":1793232000,"icsd":1793232000`},
+		"the end alone on a deadline": {deadlines, `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200}`},
+		"a reminder on a deadline":    {deadlines, `"ato":36000`},
+		"a title on a template after": {after, `"tt":"x"`},
 	} {
 		posts, err := write(c.target, c.fields)
 		if err == nil || posts != 0 {

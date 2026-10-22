@@ -183,8 +183,9 @@ the instance and, on its template, the start of the next instance and the
 day of the completion, `{tir, acrd}` without `md`
 (`NewAfterCompletionAdvance`). Cancelling it (`ss` 2) or putting it in the
 trash (`{tr: true, md}`) takes the same companion (captured 2026-10-22,
-commits 316 and 319). Either alone is refused, as every other write on these
-templates and instances.
+commits 316 and 319). Either alone is refused. The template itself takes only the trash,
+`{tr: true, md}` (captured 2026-10-22, commit 260); every other write on
+these templates and instances is refused.
 
 An instance of a template on fixed dates, with deadlines or without, goes to
 the trash with `{tr: true, md}` alone; the app writes nothing on its
