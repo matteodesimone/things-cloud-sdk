@@ -252,7 +252,7 @@ func (h *History) Write(items ...Identifiable) error {
 	}
 	ancestorIndex := h.LatestServerIndex
 	if plan.needsPreflight() {
-		checkedHead, err := h.preflightTask7Modifications(plan.modificationTargets, plan.modificationKeys)
+		checkedHead, err := h.preflightTask7Modifications(plan.modificationTargets, plan.modificationKeys, plan.modificationRules)
 		if err != nil {
 			return err
 		}
@@ -333,7 +333,7 @@ type deadlineTemplate struct {
 	recurring, fixed, deadlines bool
 }
 
-func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys map[string][]string) (int, error) {
+func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys map[string][]string, rules map[string]json.RawMessage) (int, error) {
 	templates := map[string]*deadlineTemplate{}
 	states := make(map[string]*task7TargetState, len(targets))
 	for id := range targets {
@@ -391,9 +391,9 @@ func (h *History) preflightTask7Modifications(targets map[string]struct{}, keys 
 		case !state.rrKnown || !state.rpKnown || !state.rtKnown:
 			return 0, &PreflightError{Target: id, Reason: ErrUnverifiedTarget, detail: "lacks complete recurrence markers"}
 		case writableInstance(state, templates, keys[id]):
-		case writableTemplate(state, templates[id], keys[id]):
+		case writableTemplate(state, templates[id], keys[id], rules[id]):
 		case templateOnly(keys[id]):
-			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is not a template with deadlines"}
+			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is not a template that takes this rule"}
 		case state.rrActive || state.rpActive || state.rtActive || state.icsd || state.acrd:
 			return 0, &PreflightError{Target: id, Reason: ErrRecurring, detail: "is recurring"}
 		}
@@ -501,15 +501,15 @@ func applyTask7PreflightItem(states map[string]*task7TargetState, item Item) err
 }
 
 // writableInstance says whether a target is an instance of a template on
-// fixed dates, and the modification writes only what the app writes on
-// one. An instance of a template repeating after completion is not: when
+// fixed dates or with deadlines, and the modification writes only what the
+// app writes on one. An instance of a template repeating after completion is not: when
 // it is completed the app writes its template too.
 func writableInstance(state *task7TargetState, templates map[string]*deadlineTemplate, keys []string) bool {
 	if !state.rtActive || state.rrActive || state.rpActive || state.icsd || state.acrd || state.rtTemplate == "" {
 		return false
 	}
 	t := templates[state.rtTemplate]
-	if t == nil || !t.recurring || !t.fixed {
+	if t == nil || !t.recurring || !(t.fixed || t.deadlines) {
 		return false
 	}
 	for _, key := range keys {
@@ -520,22 +520,42 @@ func writableInstance(state *task7TargetState, templates map[string]*deadlineTem
 	return true
 }
 
-// templateWrites are the writes the app makes on a template with deadlines
-// (captured 2026-10-21, commits 98–102), each with the modification date:
-// title and note, the rule with the start of its next instance, the trash.
-var templateWrites = []map[string]bool{
+// deadlineTemplateWrites are the writes the app makes on a template with
+// deadlines (captured 2026-10-21, commits 98–102), each with the
+// modification date: title and note, the rule with the start of its next
+// instance, the trash.
+var deadlineTemplateWrites = []map[string]bool{
 	{"tt": true, "nt": true},
 	{"rr": true, "tir": true, "icsd": true},
 	{"tr": true},
 }
 
-// writableTemplate says whether a target is a recurring template with
-// deadlines, and the modification is one the app makes on it.
-func writableTemplate(state *task7TargetState, t *deadlineTemplate, keys []string) bool {
-	if t == nil || !t.recurring || !t.deadlines || !state.rrActive || state.rpActive || state.rtActive || state.acrd {
+// repeatingTemplateWrites are the writes the app makes on a template on
+// fixed dates without deadlines (captured 2026-10-22, commits 249–261):
+// those of a template with deadlines, the rule alone (its end), and the
+// reminder of its instances.
+var repeatingTemplateWrites = append([]map[string]bool{{"rr": true}, {"ato": true}}, deadlineTemplateWrites...)
+
+// writableTemplate says whether a target is a recurring template on fixed
+// dates, with deadlines or without, and the modification is one the app
+// makes on that kind, with a rule of that kind.
+func writableTemplate(state *task7TargetState, t *deadlineTemplate, keys []string, rule json.RawMessage) bool {
+	if t == nil || !t.recurring || !(t.fixed || t.deadlines) || !state.rrActive || state.rpActive || state.rtActive || state.acrd {
 		return false
 	}
-	for _, allowed := range templateWrites {
+	writes, validRule := repeatingTemplateWrites, validateRepeatingRule
+	if t.deadlines {
+		writes, validRule = deadlineTemplateWrites, validateDeadlineRule
+		// The rule of a template with deadlines goes with the start of its
+		// next instance, never alone.
+		if rule != nil && !slices.Contains(keys, "tir") {
+			return false
+		}
+	}
+	if rule != nil && validRule(rule) != nil {
+		return false
+	}
+	for _, allowed := range writes {
 		ok, some := true, false
 		for _, key := range keys {
 			if key == "md" {
@@ -554,8 +574,7 @@ func writableTemplate(state *task7TargetState, t *deadlineTemplate, keys []strin
 }
 
 // templateOnly says whether a modification writes what only a template
-// with deadlines takes: its rule, or the day the app looks whether to
-// create an instance.
+// takes: its rule, or the day the app looks whether to create an instance.
 func templateOnly(keys []string) bool {
 	return slices.Contains(keys, "rr") || slices.Contains(keys, "icsd")
 }

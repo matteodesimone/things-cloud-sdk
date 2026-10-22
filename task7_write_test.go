@@ -695,3 +695,65 @@ func TestHistoryWriteTask7DeadlineTemplate(t *testing.T) {
 		}
 	}
 }
+
+// A recurring template on fixed dates without deadlines takes the writes
+// the app makes on it (captured 2026-10-22): title and note, a rule with
+// the first occurrence in tir and icsd, the end alone, the reminder, the
+// trash. A rule with deadlines on it, a rule without on a template with
+// deadlines, its completion, a start date, and any write on a template
+// after completion stay refused.
+func TestHistoryWriteTask7RepeatingTemplate(t *testing.T) {
+	template, deadlines, after := NewUUID(), NewUUID(), NewUUID()
+	history := historyPage(3,
+		taskHistoryBatch(template, ItemKindTask7, 0, `{"rr":{"fu":256,"tp":0},"rp":null,"rt":[],"dd":null,"icsd":1793059200}`),
+		taskHistoryBatch(deadlines, ItemKindTask7, 0, `{"rr":{"fu":8,"tp":0},"rp":null,"rt":[],"dd":64092211200,"icsd":1795219200}`),
+		taskHistoryBatch(after, ItemKindTask7, 0, `{"rr":{"fu":16,"tp":1},"rp":null,"rt":[],"dd":null,"icsd":1792713600}`),
+	)
+	write := func(target, fields string) (int, error) {
+		posts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				posts++
+				fmt.Fprint(w, `{"server-head-index":4}`)
+				return
+			}
+			fmt.Fprint(w, history)
+		}))
+		defer server.Close()
+		h := New(server.URL, "test@example.com", "password").HistoryWithID("history")
+		err := h.Write(rawWriteProbe{id: target, body: task7UpdateBody(fields)})
+		return posts, err
+	}
+	weekly := `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":0,"ts":0,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":1794268800}`
+	deadlineRule := `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`
+	for name, fields := range map[string]string{
+		"title+note":   `"tt":"Prova settimanale","nt":{"_t":"tx","ch":0,"v":"","t":1}`,
+		"rule":         weekly + `,"tir":1793232000,"icsd":1793232000`,
+		"end":          weekly,
+		"reminder":     `"ato":36000`,
+		"reminder off": `"ato":null`,
+		"trash":        `"tr":true`,
+		"two weeks":    `"rr":{"ia":1792972800,"of":[{"wd":1},{"wd":4}],"tp":0,"ts":0,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":2,"ed":64092211200},"tir":1792972800,"icsd":1792972800`,
+	} {
+		if posts, err := write(template, fields); err != nil || posts != 1 {
+			t.Errorf("%s on the template: posts %d, %v", name, posts, err)
+		}
+	}
+	for name, c := range map[string]struct{ target, fields string }{
+		"a deadline rule on it":         {template, deadlineRule},
+		"a rule starting in advance":    {template, `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":0,"ts":-2,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":64092211200}`},
+		"a rule after completion":       {template, `"rr":{"ia":1792627200,"of":[{"wd":4}],"tp":1,"ts":0,"fu":256,"rc":0,"sr":1792627200,"rrv":4,"fa":1,"ed":64092211200}`},
+		"complete it":                   {template, `"ss":3,"sp":1792575000`},
+		"a start date on it":            {template, `"st":2,"sr":1792627200,"tir":1792627200`},
+		"a weekly rule on a deadline":   {deadlines, weekly + `,"tir":1793232000,"icsd":1793232000`},
+		"the end alone on a deadline":   {deadlines, `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200}`},
+		"a reminder on a deadline":      {deadlines, `"ato":36000`},
+		"a title on a template after":   {after, `"tt":"x"`},
+		"the trash of a template after": {after, `"tr":true`},
+	} {
+		posts, err := write(c.target, c.fields)
+		if err == nil || posts != 0 {
+			t.Errorf("%s: posts %d, %v", name, posts, err)
+		}
+	}
+}

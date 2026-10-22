@@ -17,8 +17,11 @@ type task7WritePlan struct {
 	// modificationKeys are the properties each modification writes: an
 	// instance of a template with deadlines takes only some of them.
 	modificationKeys map[string][]string
-	creationTargets  map[string]struct{}
-	tombstoneTargets map[string]struct{}
+	// modificationRules are the rules the modifications write: a template
+	// takes only a rule of its kind.
+	modificationRules map[string]json.RawMessage
+	creationTargets   map[string]struct{}
+	tombstoneTargets  map[string]struct{}
 }
 
 func (p *task7WritePlan) needsPreflight() bool { return len(p.modificationTargets) != 0 }
@@ -31,6 +34,7 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 	plan := &task7WritePlan{
 		modificationTargets: make(map[string]struct{}),
 		modificationKeys:    make(map[string][]string),
+		modificationRules:   make(map[string]json.RawMessage),
 		creationTargets:     make(map[string]struct{}),
 		tombstoneTargets:    make(map[string]struct{}),
 	}
@@ -82,6 +86,9 @@ func validateTaskWrites(body []byte) (*task7WritePlan, error) {
 					plan.modificationTargets[id] = struct{}{}
 					for key := range payload {
 						plan.modificationKeys[id] = append(plan.modificationKeys[id], key)
+					}
+					if rule, ok := payload["rr"]; ok {
+						plan.modificationRules[id] = rule
 					}
 				}
 			default:
@@ -162,6 +169,9 @@ func validateTask7Create(p map[string]json.RawMessage) error {
 		return fmt.Errorf("create payload %w", err)
 	}
 	if !jsonNull(p["rr"]) {
+		if jsonNull(p["dd"]) {
+			return validateRepeatingTaskCreate(p)
+		}
 		return validateDeadlineTemplateCreate(p)
 	}
 	tp, ok := jsonInteger(p["tp"])
@@ -319,6 +329,169 @@ func sameStartAndCheck(tir, icsd json.RawMessage) error {
 	return nil
 }
 
+// validateRepeatingTaskCreate checks the creation of a recurring template
+// on fixed dates without deadlines, as the app writes it (captured
+// 2026-10-22, commit 253): a task in an area or in a project, scheduled
+// (st 2) without a start date or a deadline, its first occurrence in tir
+// and icsd, a reminder or none, md at the creation time, and a rule on
+// fixed dates that does not start in advance.
+func validateRepeatingTaskCreate(p map[string]json.RawMessage) error {
+	ints := map[string]int64{"tp": 0, "st": 2, "ss": 0, "do": 0, "ix": 0, "icc": 0, "ti": 0, "sb": 0}
+	for key, want := range ints {
+		if value, ok := jsonInteger(p[key]); !ok || value != want {
+			return fmt.Errorf("repeating create %s must be %d", key, want)
+		}
+	}
+	for _, key := range []string{"tr", "icp", "lt"} {
+		if value, ok := jsonBool(p[key]); !ok || value {
+			return fmt.Errorf("repeating create %s must be false", key)
+		}
+	}
+	if _, ok := jsonString(p["tt"]); !ok {
+		return fmt.Errorf("repeating create tt must be a string")
+	}
+	for _, key := range []string{"cd", "md"} {
+		if err := requiredTimestamp(p[key], true); err != nil {
+			return fmt.Errorf("repeating create %s %w", key, err)
+		}
+	}
+	if err := sameStartAndCheck(p["tir"], p["icsd"]); err != nil {
+		return fmt.Errorf("repeating create %w", err)
+	}
+	for _, key := range []string{"sr", "dd", "dds", "rmd", "lai", "rp", "acrd", "sp"} {
+		if !jsonNull(p[key]) {
+			return fmt.Errorf("repeating create %s must be null", key)
+		}
+	}
+	if err := validateAlarm(p["ato"]); err != nil {
+		return fmt.Errorf("repeating create %w", err)
+	}
+	for _, key := range []string{"rt", "dl", "agr"} {
+		values, err := jsonStringArray(p[key])
+		if err != nil || len(values) != 0 {
+			return fmt.Errorf("repeating create %s must be an empty array", key)
+		}
+	}
+	places := 0
+	for _, key := range []string{"ar", "pr"} {
+		if err := validateReferenceArray(p[key]); err != nil {
+			return fmt.Errorf("repeating create %s %w", key, err)
+		}
+		values, _ := jsonStringArray(p[key])
+		if len(values) > 1 {
+			return fmt.Errorf("repeating create %s supports at most one parent identifier", key)
+		}
+		places += len(values)
+	}
+	if places != 1 {
+		return fmt.Errorf("repeating create must name one area or one project")
+	}
+	if err := validateReferenceArray(p["tg"]); err != nil {
+		return fmt.Errorf("repeating create tg %w", err)
+	}
+	if err := validateFullTextNote(p["nt"]); err != nil {
+		return fmt.Errorf("repeating create nt %w", err)
+	}
+	if err := validateDefaultExtension(p["xx"]); err != nil {
+		return fmt.Errorf("repeating create xx %w", err)
+	}
+	return validateRepeatingRule(p["rr"])
+}
+
+// validateAlarm checks a reminder: null, or the seconds of a day.
+func validateAlarm(raw json.RawMessage) error {
+	if jsonNull(raw) {
+		return nil
+	}
+	if value, ok := jsonInteger(raw); !ok || value < 0 || value >= 86400 {
+		return fmt.Errorf("ato must be null or the seconds of a day")
+	}
+	return nil
+}
+
+// validateRepeatingRule checks the rule of a recurring template without
+// deadlines as the app writes it (captured 2026-10-22): every fa days (the
+// day 0), weeks (one to seven days of the week, in order from Sunday),
+// months (a day) or years (a day of a month), fixed (not after
+// completion), without starting in advance, ending on a day or never.
+func validateRepeatingRule(raw json.RawMessage) error {
+	rr, err := jsonObject(raw)
+	if err != nil {
+		return fmt.Errorf("rr must be an object")
+	}
+	if err := exactKeys(rr, deadlineRuleKeys); err != nil {
+		return fmt.Errorf("rr %w", err)
+	}
+	for key, want := range map[string]int64{"tp": 0, "rc": 0, "rrv": 4, "ts": 0} {
+		if value, ok := jsonInteger(rr[key]); !ok || value != want {
+			return fmt.Errorf("rr %s must be %d", key, want)
+		}
+	}
+	if fa, ok := jsonInteger(rr["fa"]); !ok || fa < 1 {
+		return fmt.Errorf("rr fa must be 1 or more")
+	}
+	for _, key := range []string{"ia", "sr", "ed"} {
+		if value, ok := jsonInteger(rr[key]); !ok || value <= 0 {
+			return fmt.Errorf("rr %s must be a day", key)
+		}
+	}
+	var of []map[string]json.RawMessage
+	if err := json.Unmarshal(rr["of"], &of); err != nil || len(of) == 0 {
+		return fmt.Errorf("rr of must hold the days")
+	}
+	fu, _ := jsonInteger(rr["fu"])
+	switch FrequencyUnit(fu) {
+	case FrequencyUnitDaily:
+		if len(of) != 1 || exactKeys(of[0], map[string]struct{}{"dy": {}}) != nil {
+			return fmt.Errorf("rr of of a daily rule must be the day 0")
+		}
+		if dy, ok := jsonInteger(of[0]["dy"]); !ok || dy != 0 {
+			return fmt.Errorf("rr of of a daily rule must be the day 0")
+		}
+	case FrequencyUnitWeekly:
+		if len(of) > 7 {
+			return fmt.Errorf("rr of of a weekly rule holds at most seven days")
+		}
+		last := int64(-1)
+		for _, day := range of {
+			wd, ok := jsonInteger(day["wd"])
+			if exactKeys(day, map[string]struct{}{"wd": {}}) != nil || !ok || wd <= last || wd > 6 {
+				return fmt.Errorf("rr of of a weekly rule must be days of the week in order from Sunday")
+			}
+			last = wd
+		}
+	case FrequencyUnitMonthly, FrequencyUnitYearly:
+		if len(of) != 1 {
+			return fmt.Errorf("rr of must hold one day")
+		}
+		return validateDayOfRule(FrequencyUnit(fu), of[0])
+	default:
+		return fmt.Errorf("rr fu must be daily, weekly, monthly or yearly")
+	}
+	return nil
+}
+
+// validateDayOfRule checks the day of a monthly or yearly rule: a day of
+// the month, and for a yearly rule its month.
+func validateDayOfRule(fu FrequencyUnit, day map[string]json.RawMessage) error {
+	want := map[string]struct{}{"dy": {}}
+	if fu == FrequencyUnitYearly {
+		want["mo"] = struct{}{}
+	}
+	if err := exactKeys(day, want); err != nil {
+		return fmt.Errorf("rr of %w", err)
+	}
+	if dy, ok := jsonInteger(day["dy"]); !ok || dy < -1 || dy > 30 {
+		return fmt.Errorf("rr of dy must be a day of the month")
+	}
+	if raw, ok := day["mo"]; ok {
+		if mo, ok := jsonInteger(raw); !ok || mo < 0 || mo > 11 {
+			return fmt.Errorf("rr of mo must be a month")
+		}
+	}
+	return nil
+}
+
 var deadlineRuleKeys = map[string]struct{}{
 	"ia": {}, "of": {}, "tp": {}, "ts": {}, "fu": {}, "rc": {}, "sr": {}, "rrv": {}, "fa": {}, "ed": {},
 }
@@ -359,22 +532,7 @@ func validateDeadlineRule(raw json.RawMessage) error {
 	if err := json.Unmarshal(rr["of"], &of); err != nil || len(of) != 1 {
 		return fmt.Errorf("rr of must hold one day")
 	}
-	want := map[string]struct{}{"dy": {}}
-	if fu == int64(FrequencyUnitYearly) {
-		want["mo"] = struct{}{}
-	}
-	if err := exactKeys(of[0], want); err != nil {
-		return fmt.Errorf("rr of %w", err)
-	}
-	if dy, ok := jsonInteger(of[0]["dy"]); !ok || dy < -1 || dy > 30 {
-		return fmt.Errorf("rr of dy must be a day of the month")
-	}
-	if raw, ok := of[0]["mo"]; ok {
-		if mo, ok := jsonInteger(raw); !ok || mo < 0 || mo > 11 {
-			return fmt.Errorf("rr of mo must be a month")
-		}
-	}
-	return nil
+	return validateDayOfRule(FrequencyUnit(fu), of[0])
 }
 
 func validateTask7Modification(p map[string]json.RawMessage) error {
@@ -415,10 +573,9 @@ func validateTask7Modification(p map[string]json.RawMessage) error {
 	}
 	// The reminder is the seconds of a day on the start date, as the app
 	// writes it, or null (captured 2026-10-21).
-	if raw, ok := p["ato"]; ok && !jsonNull(raw) {
-		value, ok := jsonInteger(raw)
-		if !ok || value < 0 || value >= 86400 {
-			return fmt.Errorf("modification ato must be null or the seconds of a day")
+	if raw, ok := p["ato"]; ok {
+		if err := validateAlarm(raw); err != nil {
+			return fmt.Errorf("modification %w", err)
 		}
 	}
 	ssRaw, hasStatus := p["ss"]
@@ -443,17 +600,24 @@ func validateTask7Modification(p map[string]json.RawMessage) error {
 	_, hasRule := p["rr"]
 	_, hasCheck := p["icsd"]
 	if hasRule || hasCheck {
-		// The rule of a template with deadlines: the whole rule, with the
-		// start of its next instance in tir and icsd, without the schedule
-		// (captured 2026-10-21).
-		if !hasRule || !hasCheck || !hasTodayReference || hasSchedule || hasStartDate {
-			return fmt.Errorf("modification rr, tir and icsd must be written together, without st and sr")
+		// The rule of a template: the whole rule, with the start of its
+		// next instance in tir and icsd, without the schedule (captured
+		// 2026-10-21); or, on a template without deadlines, the rule alone,
+		// as when only its end changes (captured 2026-10-22). The preflight
+		// checks the rule is of the template's kind.
+		alone := hasRule && !hasCheck && !hasTodayReference
+		if !alone && (!hasRule || !hasCheck || !hasTodayReference) || hasSchedule || hasStartDate {
+			return fmt.Errorf("modification rr, tir and icsd must be written together, or rr alone, without st and sr")
 		}
-		if err := validateDeadlineRule(p["rr"]); err != nil {
-			return fmt.Errorf("modification %w", err)
+		if validateDeadlineRule(p["rr"]) != nil {
+			if err := validateRepeatingRule(p["rr"]); err != nil {
+				return fmt.Errorf("modification %w", err)
+			}
 		}
-		if err := sameStartAndCheck(p["tir"], p["icsd"]); err != nil {
-			return fmt.Errorf("modification %w", err)
+		if !alone {
+			if err := sameStartAndCheck(p["tir"], p["icsd"]); err != nil {
+				return fmt.Errorf("modification %w", err)
+			}
 		}
 	} else if hasSchedule || hasStartDate || hasTodayReference {
 		if !hasSchedule || !hasStartDate || !hasTodayReference {

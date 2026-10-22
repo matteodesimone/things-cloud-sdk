@@ -341,3 +341,101 @@ func (u *TaskUpdate) Repeat(rule DeadlineRule, start time.Time) *TaskUpdate {
 	u.fields["icsd"] = dayStamp(start)
 	return u
 }
+
+// RepeatingRule is the rule of a recurring template on fixed dates without
+// deadlines (captured 2026-10-22): every Amplitude days; weeks, on
+// Weekdays in order from Sunday; months, on Day; years, on Month and Day.
+// Days and months count from 0, Day -1 is the last day of the month. End
+// is the last day of the rule, included, or nil when it does not end.
+// Anchor (ia) is the day the periods count from, Reference (sr) the start
+// of the rule.
+type RepeatingRule struct {
+	Unit      FrequencyUnit
+	Amplitude int64
+	Weekdays  []time.Weekday
+	Day       int64
+	Month     *int64
+	End       *time.Time
+	Anchor    time.Time
+	Reference time.Time
+}
+
+// payload is the rule as the app writes it; the write policy checks it.
+func (r RepeatingRule) payload() map[string]any {
+	var of []map[string]any
+	switch r.Unit {
+	case FrequencyUnitDaily:
+		of = []map[string]any{{"dy": 0}}
+	case FrequencyUnitWeekly:
+		of = []map[string]any{}
+		for _, wd := range r.Weekdays {
+			of = append(of, map[string]any{"wd": int(wd)})
+		}
+	default:
+		day := map[string]any{"dy": r.Day}
+		if r.Month != nil {
+			day["mo"] = *r.Month
+		}
+		of = []map[string]any{day}
+	}
+	ed := noDateStamp
+	if r.End != nil {
+		ed = dayStamp(*r.End)
+	}
+	return map[string]any{
+		"ia": dayStamp(r.Anchor), "of": of, "tp": 0, "ts": 0, "fu": r.Unit, "rc": 0,
+		"sr": dayStamp(r.Reference), "rrv": 4, "fa": r.Amplitude, "ed": ed,
+	}
+}
+
+// RepeatingTask is a new recurring template on fixed dates without
+// deadlines, in an area or in a project: First is the day of its first
+// occurrence, whose instance the app creates when that day comes, and
+// Reminder the time of day of the reminder of every instance, or nil.
+type RepeatingTask struct {
+	Title, Note       string
+	AreaID, ProjectID string
+	Rule              RepeatingRule
+	First             time.Time
+	Reminder          *time.Duration
+	Now               time.Time
+}
+
+// NewRepeatingTaskCreate builds the creation of a recurring template
+// without deadlines as Things.app writes it (captured 2026-10-22, commit
+// 253), and checks it against the write policy.
+func NewRepeatingTaskCreate(uuid string, c RepeatingTask) (Identifiable, error) {
+	first := dayStamp(c.First)
+	var ato any
+	if c.Reminder != nil {
+		ato = int64(c.Reminder.Seconds())
+	}
+	payload := map[string]any{
+		"tp": TaskTypeTask, "sr": nil, "dds": nil, "rt": []string{}, "rmd": nil, "ss": 0,
+		// st 2, the schedule the app gives a template.
+		"tr": false, "dl": []string{}, "icp": false, "st": TaskScheduleSomeday, "ar": oneOrNone(c.AreaID),
+		"tt": c.Title, "do": 0, "lai": nil, "tir": first, "tg": []string{}, "agr": []string{},
+		"ix": 0, "cd": stamp(c.Now), "lt": false, "icc": 0, "md": stamp(c.Now), "ti": 0, "dd": nil,
+		"ato": ato, "nt": fullTextNote(c.Note), "icsd": first, "pr": oneOrNone(c.ProjectID),
+		"rp": nil, "acrd": nil, "sp": nil, "sb": 0, "rr": c.Rule.payload(), "xx": defaultExtensionData(),
+	}
+	item := writeItem{id: uuid, action: ItemActionCreated, kind: ItemKindTask7, payload: payload}
+	if err := checkWriteItem(item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// RepeatEvery changes the rule of a recurring template without deadlines
+// as the app writes it (captured 2026-10-22): the whole rule and, when
+// first is given, the day of the first occurrence of the new rule in tir
+// and icsd (commits 254, 255); without it the rule alone, as when only the
+// end changes (commit 249).
+func (u *TaskUpdate) RepeatEvery(rule RepeatingRule, first *time.Time) *TaskUpdate {
+	u.fields["rr"] = rule.payload()
+	if first != nil {
+		u.fields["tir"] = dayStamp(*first)
+		u.fields["icsd"] = dayStamp(*first)
+	}
+	return u
+}

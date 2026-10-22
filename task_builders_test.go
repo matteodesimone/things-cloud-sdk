@@ -335,10 +335,13 @@ func TestTaskUpdateRepeat(t *testing.T) {
 		t.Errorf("tir %v icsd %v", p["tir"], p["icsd"])
 	}
 	for name, fields := range map[string]string{
-		"rr without tir":          `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"icsd":1795219200`,
-		"tir and icsd apart":      `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795305600`,
-		"rr with the schedule":    `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200,"st":2,"sr":1795219200`,
-		"a daily rr":              `"rr":{"ia":1792540800,"of":[{"dy":0}],"tp":0,"ts":0,"fu":16,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`,
+		"rr without tir":       `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"icsd":1795219200`,
+		"tir and icsd apart":   `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795305600`,
+		"rr with the schedule": `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200,"st":2,"sr":1795219200`,
+		// A daily rule is one of a template without deadlines: the policy
+		// takes it, and the preflight refuses it on a template with
+		// deadlines (TestHistoryWriteTask7RepeatingTemplate).
+		"a daily rr in advance":   `"rr":{"ia":1792540800,"of":[{"dy":0}],"tp":0,"ts":-5,"fu":16,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`,
 		"a rule that ends":        `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":0,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":1800000000},"tir":1795219200,"icsd":1795219200`,
 		"a rule after completion": `"rr":{"ia":1792540800,"of":[{"dy":19}],"tp":1,"ts":-5,"fu":8,"rc":0,"sr":1792540800,"rrv":4,"fa":1,"ed":64092211200},"tir":1795219200,"icsd":1795219200`,
 		"icsd alone":              `"icsd":1795219200`,
@@ -348,5 +351,117 @@ func TestTaskUpdateRepeat(t *testing.T) {
 		if _, err := validateTaskWrites(body); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// A recurring template on fixed dates without deadlines (captured
+// 2026-10-22, «Prova settimanale», commit 253): the whole creation the app
+// writes, scheduled (st 2) without a start date, the first occurrence in
+// tir and icsd, the reminder in ato, md at the creation time, and a rule
+// that does not start in advance (ts 0), with or without an end.
+func TestNewRepeatingTaskCreateBuildsTheCapturedShape(t *testing.T) {
+	t.Parallel()
+
+	area := NewUUID()
+	first := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	nine := 9 * time.Hour
+	item, err := NewRepeatingTaskCreate(NewUUID(), RepeatingTask{
+		Title: "Prova settimanale", AreaID: area,
+		Rule:  RepeatingRule{Unit: FrequencyUnitWeekly, Amplitude: 1, Weekdays: []time.Weekday{time.Tuesday}, Anchor: builderToday, Reference: builderToday},
+		First: first, Reminder: &nine, Now: builderNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := checkWritable(t, item)
+	got, _ := json.Marshal(env["p"])
+	now := float64(builderNow.UnixNano()) / 1e9
+	want := map[string]any{
+		"tp": 0, "sr": nil, "dds": nil, "rt": []string{}, "rmd": nil, "ss": 0, "tr": false, "dl": []string{}, "icp": false, "st": 2, "ar": []string{area},
+		"tt": "Prova settimanale", "do": 0, "lai": nil, "tir": first.Unix(), "tg": []string{}, "agr": []string{}, "ix": 0, "cd": now, "lt": false, "icc": 0,
+		"md": now, "ti": 0, "dd": nil, "ato": 32400, "nt": map[string]any{"_t": "tx", "ch": 0, "v": "", "t": 1}, "icsd": first.Unix(),
+		"pr": []string{}, "rp": nil, "acrd": nil, "sp": nil, "sb": 0,
+		"rr": map[string]any{"ia": builderToday.Unix(), "of": []map[string]any{{"wd": 2}}, "rrv": 4, "ts": 0, "fu": 256, "sr": builderToday.Unix(), "fa": 1, "tp": 0, "rc": 0, "ed": 64092211200},
+		"xx": map[string]any{"sn": map[string]any{}, "_t": "oo"},
+	}
+	wantJSON, _ := json.Marshal(want)
+	var a, b any
+	json.Unmarshal(got, &a)
+	json.Unmarshal(wantJSON, &b)
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("payload\n got %s\nwant %s", got, wantJSON)
+	}
+
+	// In a project, every two weeks on two days, with an end, no reminder
+	// (the rule of commit 255 and the end of commit 254); every three days.
+	project := NewUUID()
+	end := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	item, err = NewRepeatingTaskCreate(NewUUID(), RepeatingTask{
+		Title: "Prova", Note: "una nota", ProjectID: project,
+		Rule:  RepeatingRule{Unit: FrequencyUnitWeekly, Amplitude: 2, Weekdays: []time.Weekday{time.Monday, time.Thursday}, End: &end, Anchor: first, Reference: builderToday},
+		First: first, Now: builderNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := checkWritable(t, item)["p"].(map[string]any)
+	rr := p["rr"].(map[string]any)
+	if !reflect.DeepEqual(p["pr"], []any{project}) || !reflect.DeepEqual(p["ar"], []any{}) || p["ato"] != nil ||
+		rr["fa"] != float64(2) || rr["ed"] != float64(end.Unix()) || !reflect.DeepEqual(rr["of"], []any{map[string]any{"wd": float64(1)}, map[string]any{"wd": float64(4)}}) {
+		t.Errorf("in a project: %v", p)
+	}
+	item, err = NewRepeatingTaskCreate(NewUUID(), RepeatingTask{
+		Title: "Prova", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitDaily, Amplitude: 3, Anchor: builderToday, Reference: builderToday},
+		First: builderToday, Now: builderNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rr := checkWritable(t, item)["p"].(map[string]any)["rr"].(map[string]any); rr["fu"] != float64(16) || !reflect.DeepEqual(rr["of"], []any{map[string]any{"dy": float64(0)}}) {
+		t.Errorf("daily rr %v", rr)
+	}
+
+	march := int64(2)
+	late := 25 * time.Hour
+	for name, c := range map[string]RepeatingTask{
+		"no place":          {Title: "x", Rule: RepeatingRule{Unit: FrequencyUnitDaily, Amplitude: 1}},
+		"two places":        {Title: "x", AreaID: area, ProjectID: project, Rule: RepeatingRule{Unit: FrequencyUnitDaily, Amplitude: 1}},
+		"weekly no day":     {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitWeekly, Amplitude: 1}},
+		"weekly twice":      {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitWeekly, Amplitude: 1, Weekdays: []time.Weekday{time.Monday, time.Monday}}},
+		"weekly unordered":  {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitWeekly, Amplitude: 1, Weekdays: []time.Weekday{time.Thursday, time.Monday}}},
+		"weekly day 7":      {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitWeekly, Amplitude: 1, Weekdays: []time.Weekday{7}}},
+		"yearly no month":   {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitYearly, Amplitude: 1, Day: 4}},
+		"monthly month":     {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitMonthly, Amplitude: 1, Day: 4, Month: &march}},
+		"no amplitude":      {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitDaily}},
+		"reminder too late": {Title: "x", AreaID: area, Rule: RepeatingRule{Unit: FrequencyUnitDaily, Amplitude: 1}, Reminder: &late},
+	} {
+		c.Rule.Anchor, c.Rule.Reference, c.First, c.Now = builderToday, builderToday, builderToday, builderNow
+		if _, err := NewRepeatingTaskCreate(NewUUID(), c); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+// The rule of a recurring template without deadlines changes as the app
+// writes it (captured 2026-10-22): a new rule with the first occurrence in
+// tir and icsd (commits 254 and 255), or the end alone, the rule only
+// (commit 249).
+func TestTaskUpdateRepeatEvery(t *testing.T) {
+	t.Parallel()
+
+	first := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+	rule := RepeatingRule{Unit: FrequencyUnitWeekly, Amplitude: 1, Weekdays: []time.Weekday{time.Thursday}, Anchor: builderToday, Reference: builderToday}
+	env := checkWritable(t, NewTaskUpdate(NewUUID(), builderNow).RepeatEvery(rule, &first))
+	if keys := payloadKeys(env); !reflect.DeepEqual(keys, []string{"icsd", "md", "rr", "tir"}) {
+		t.Errorf("keys %v", keys)
+	}
+	end := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	rule.End = &end
+	env = checkWritable(t, NewTaskUpdate(NewUUID(), builderNow).RepeatEvery(rule, nil))
+	if keys := payloadKeys(env); !reflect.DeepEqual(keys, []string{"md", "rr"}) {
+		t.Errorf("keys %v", keys)
+	}
+	if ed := env["p"].(map[string]any)["rr"].(map[string]any)["ed"]; ed != float64(end.Unix()) {
+		t.Errorf("ed %v", ed)
 	}
 }

@@ -148,9 +148,38 @@ account):
 - **Modifications** on such a template only: title and note (`tt`, `nt`);
   the rule with the start of the next instance (`TaskUpdate.Repeat`: `rr`,
   `tir` and `icsd` together, without `st` and `sr`); the trash (`tr`). Each
-  with `md`. Completing it, a deadline or a start date on it, and these
-  writes on a template without deadlines or on a plain task are refused.
+  with `md`. Completing it, a deadline or a start date on it, a rule
+  without deadlines on it, and these writes on a plain task are refused.
 
 The instances are created by the app when their start comes, together with
 the update of the template; writers do not create them. Trashing a
 template leaves its open instance as it is.
+
+## Recurring templates without deadlines
+
+A recurring template on fixed dates without deadlines (`dd` null, `rr.tp`
+0) is written in the shapes Things.app writes (captured 2026-10-22):
+
+- **Creation** (`NewRepeatingTaskCreate`): the complete Task7 payload of a
+  task in one area or one project, with `st` 2, `sr` and `dd` null, `md` at
+  the creation time, `tir` and `icsd` both at its first occurrence, `icc`
+  0, the reminder of its instances in `ato` (the seconds of the day) or
+  null, and a rule `rr` that is daily (`fu` 16, `of: [{dy: 0}]`), weekly
+  (`fu` 256, `of` one to seven `{wd}` in order from Sunday), monthly or
+  yearly on a day, every `fa` periods, fixed (`tp` 0), without starting in
+  advance (`ts` 0), ending on a day, included, or never (`ed` at
+  4001-01-01).
+- **Modifications** on such a template only: title and note; a rule of the
+  same kind with its first occurrence in `tir` and `icsd`
+  (`TaskUpdate.RepeatEvery` with a day), or the rule alone, as when only its
+  end changes (`RepeatEvery` without a day); the reminder (`ato`); the
+  trash. Each with `md`.
+- **Instances** take complete, cancel and a start date, as those of a
+  template with deadlines.
+
+A template repeating after completion (`tp` 1) and its instances stay
+refused: completing an instance the app writes its template too.
+
+When the app makes a recurring todo of an existing one it deletes the todo
+(`t` 2, outside this write scope) and creates a template; writers trash the
+todo and create the template instead.
